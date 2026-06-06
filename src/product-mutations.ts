@@ -2,7 +2,7 @@ import { mkdir, readdir, readFile, rm, unlink, writeFile } from "node:fs/promise
 import path from "node:path";
 import { stableStringify, sha256Text } from "./canonical-json.ts";
 import { loadConfig } from "./config.ts";
-import { createdEvent, deletedEvent, eventJsonl, eventRunDigest, fieldChangedEvents } from "./events.ts";
+import { createdEvent, deletedEvent, eventJsonlShards, fieldChangedEvents } from "./events.ts";
 import { gitOutput, gitSuccess, runGit } from "./git.ts";
 import { diffJson } from "./json-diff.ts";
 import { safePathSegment } from "./safe-id.ts";
@@ -25,6 +25,7 @@ export interface ProductMutationApplySummary {
   deleted: number;
   fieldEvents: number;
   eventFile?: string;
+  eventFiles?: string[];
   productsHash: string;
   committed: boolean;
 }
@@ -40,6 +41,7 @@ interface StoreBranchManifest {
   lastChangedAt: string | null;
   lastRunId: string;
   lastEventFile: string | null;
+  lastEventFiles?: string[];
   syncIntervalMinutes: number;
   nextSyncNotBefore: string;
   lastMutationRequestId?: string;
@@ -273,19 +275,25 @@ async function applyBatchToStore(config: AppConfig, store: StoreConfig, repoRoot
     const nextRecords = [...next.values()].sort((a, b) => a.productId.localeCompare(b.productId));
     const productsHash = productsHashFromRecords(nextRecords.map((record) => ({ productId: record.productId, hash: record.hash })));
     let eventFile: string | undefined;
+    let eventFiles: Array<{ path: string; events: ProductEvent[] }> | undefined;
     if (events.length > 0) {
-      const digest = eventRunDigest(events);
       const dayPath = observedAt.slice(0, 10).replaceAll("-", "/");
       const eventDir = path.join(worktreeDir, "events", dayPath);
-      eventFile = `events/${dayPath}/${digest}.jsonl`;
       await mkdir(eventDir, { recursive: true });
-      await writeFile(path.join(eventDir, `${digest}.jsonl`), eventJsonl(events), "utf8");
+      const shards = eventJsonlShards(events);
+      eventFiles = [];
+      for (const shard of shards) {
+        const relativePath = `events/${dayPath}/${shard.fileName}`;
+        await writeFile(path.join(eventDir, shard.fileName), shard.text, "utf8");
+        eventFiles.push({ path: relativePath, events: shard.records });
+      }
+      eventFile = eventFiles[0]?.path;
     }
 
     const interval = intervalMinutes(config, store);
-    const summary: StoreSyncSummary = { storeId: store.id, fetched: nextRecords.length, created, updated, deleted, fieldEvents, eventFile, productsHash };
+    const summary: StoreSyncSummary = { storeId: store.id, fetched: nextRecords.length, created, updated, deleted, fieldEvents, eventFile, eventFiles: eventFiles?.map((file) => file.path), productsHash };
     await writeFile(path.join(worktreeDir, "config.json"), stableStringify({ ...store, token: undefined } as never), "utf8");
-    await writeResolvedStoreState({ worktreeDir, store, observedAt, fetchedProducts: nextRecords.map((record) => record.product), events, eventFile, summary });
+    await writeResolvedStoreState({ worktreeDir, store, observedAt, fetchedProducts: nextRecords.map((record) => record.product), events, eventFile, eventFiles, summary });
     const branchManifest: StoreBranchManifest = {
       schemaVersion: 2,
       source: "ecwid",
@@ -297,6 +305,7 @@ async function applyBatchToStore(config: AppConfig, store: StoreConfig, repoRoot
       lastChangedAt: events.length > 0 ? observedAt : manifest?.lastChangedAt ?? null,
       lastRunId: runId,
       lastEventFile: eventFile ?? manifest?.lastEventFile ?? null,
+      lastEventFiles: eventFiles?.map((file) => file.path) ?? manifest?.lastEventFiles,
       syncIntervalMinutes: interval,
       nextSyncNotBefore: nextSyncNotBefore(manifest, observedAt, interval),
       lastMutationRequestId: request.requestId,
@@ -319,7 +328,7 @@ async function applyBatchToStore(config: AppConfig, store: StoreConfig, repoRoot
       if (!noPush) runGit(["push", "origin", `HEAD:${branch}`], { cwd: worktreeDir });
     }
 
-    return { requestId: request.requestId, storeId: store.id, branch, created, updated, deleted, fieldEvents, eventFile, productsHash, committed };
+    return { requestId: request.requestId, storeId: store.id, branch, created, updated, deleted, fieldEvents, eventFile, eventFiles: eventFiles?.map((file) => file.path), productsHash, committed };
   } finally {
     await rm(worktreeDir, { recursive: true, force: true });
     runGit(["worktree", "prune"], { cwd: repoRoot, quiet: true, allowFailure: true });

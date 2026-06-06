@@ -4,7 +4,7 @@ Mirror one or more Ecwid stores into git and use the repository itself as a prod
 
 - `main` stores config, code, workflows, analysis snapshots, and the GitHub Pages UI.
 - Every Ecwid store gets its own orphan branch: `stores/ecwid/<storeId>`.
-- Each store branch contains current per-product JSON files, append-only JSONL product events, and resolved state snapshots/indexes.
+- Each store branch contains current per-product JSON files, append-only JSONL product events, and resolved state snapshots/indexes. Large event/state JSONL outputs are sharded below GitHub blob limits.
 - Store sync intervals are configured per store.
 - The web UI can add stores, manage secrets, configure webhooks, run browser-side on-demand syncs, browse products/events, and run cross-store analysis.
 
@@ -73,7 +73,7 @@ gh workflow run "Sync Ecwid stores" \
   -f force=true
 ```
 
-The preferred manual path is the web UI's browser-side sync: the browser asks for the Ecwid token, fetches products directly from Ecwid, computes product events locally, and commits product files + state snapshots directly to the store orphan branch through the GitHub Git API.
+For product edits, prefer the web UI's GitOps request-file path: the browser commits one `product-mutations/<storeId>/<requestId>.json` file to a branch or PR, then GitHub Actions validates and applies the resulting product files/events/state to the store orphan branch. Browser-side sync remains available for on-demand catalog mirroring.
 
 ## Product edits from the web UI
 

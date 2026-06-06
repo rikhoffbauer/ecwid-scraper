@@ -4,7 +4,7 @@ import path from "node:path";
 import { stableStringify, sha256Text } from "./canonical-json.ts";
 import { loadConfig } from "./config.ts";
 import { fetchAllProducts, type FetchAllProductsOptions } from "./ecwid.ts";
-import { createdEvent, deletedEvent, eventJsonl, eventRunDigest, fieldChangedEvents } from "./events.ts";
+import { createdEvent, deletedEvent, eventJsonlShards, fieldChangedEvents } from "./events.ts";
 import { runGit, gitOutput, gitSuccess } from "./git.ts";
 import { diffJson } from "./json-diff.ts";
 import { safePathSegment } from "./safe-id.ts";
@@ -31,6 +31,7 @@ interface StoreBranchManifest {
   lastChangedAt: string | null;
   lastRunId: string;
   lastEventFile: string | null;
+  lastEventFiles?: string[];
   syncIntervalMinutes: number;
   nextSyncNotBefore: string;
 }
@@ -221,13 +222,19 @@ async function syncInStoreBranch(config: AppConfig, store: StoreConfig, repoRoot
 
   const productsHash = productsHashFromRecords(nextRecords);
   let eventFile: string | undefined;
+  let eventFiles: Array<{ path: string; events: ProductEvent[] }> | undefined;
   if (events.length > 0) {
-    const digest = eventRunDigest(events);
     const dayPath = observedAt.slice(0, 10).replaceAll("-", "/");
     const eventDir = path.join(worktreeDir, "events", dayPath);
-    eventFile = `events/${dayPath}/${digest}.jsonl`;
     await mkdir(eventDir, { recursive: true });
-    await writeFile(path.join(eventDir, `${digest}.jsonl`), eventJsonl(events), "utf8");
+    const shards = eventJsonlShards(events);
+    eventFiles = [];
+    for (const shard of shards) {
+      const relativePath = `events/${dayPath}/${shard.fileName}`;
+      await writeFile(path.join(eventDir, shard.fileName), shard.text, "utf8");
+      eventFiles.push({ path: relativePath, events: shard.records });
+    }
+    eventFile = eventFiles[0]?.path;
   }
 
   const nextNotBefore = isoNoMillis(new Date(new Date(observedAt).valueOf() + interval * 60_000));
@@ -242,14 +249,15 @@ async function syncInStoreBranch(config: AppConfig, store: StoreConfig, repoRoot
     lastChangedAt: events.length > 0 ? observedAt : manifest?.lastChangedAt ?? null,
     lastRunId: runId,
     lastEventFile: eventFile ?? manifest?.lastEventFile ?? null,
+    lastEventFiles: eventFiles?.map((file) => file.path) ?? manifest?.lastEventFiles,
     syncIntervalMinutes: interval,
     nextSyncNotBefore: nextNotBefore
   };
   await writeFile(path.join(worktreeDir, "store.json"), stableStringify(branchManifest as never), "utf8");
   await writeFile(path.join(worktreeDir, "config.json"), stableStringify({ ...store, token: undefined } as never), "utf8");
 
-  const summary: StoreSyncSummary = { storeId: store.id, fetched: fetched.length, created, updated, deleted, fieldEvents, eventFile, productsHash };
-  await writeResolvedStoreState({ worktreeDir, store, observedAt, fetchedProducts: fetched, events, eventFile, summary });
+  const summary: StoreSyncSummary = { storeId: store.id, fetched: fetched.length, created, updated, deleted, fieldEvents, eventFile, eventFiles: eventFiles?.map((file) => file.path), productsHash };
+  await writeResolvedStoreState({ worktreeDir, store, observedAt, fetchedProducts: fetched, events, eventFile, eventFiles, summary });
   await dispatchWebhooks(store, events, summary);
 
   setupGitIdentity(worktreeDir);

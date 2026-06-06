@@ -10,9 +10,10 @@ Each branch contains append-only JSONL files:
 
 ```txt
 events/YYYY/MM/DD/<digest>.jsonl
+events/YYYY/MM/DD/<digest>.part-00001-of-00004.jsonl
 ```
 
-Every line is a single atomic product event.
+Every line is a single atomic product event. Large runs are deterministically sharded into `.part-N-of-M.jsonl` files using a conservative 24 MiB target so GitHub never rejects a push for a >100 MiB blob. Single-shard runs keep the original `<digest>.jsonl` filename.
 
 ## Event types
 

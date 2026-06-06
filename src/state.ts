@@ -1,11 +1,19 @@
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { stableStringify, sha256Text } from "./canonical-json.ts";
+import { GITHUB_BLOCKED_BLOB_BYTES, DEFAULT_JSONL_SHARD_TARGET_BYTES, utf8ByteLength } from "./jsonl-shards.ts";
 import { safePathSegment } from "./safe-id.ts";
 import type { JsonObject, JsonValue, ProductEvent, ProductStateIndex, ProductStateRecord, ProductSummary, StoreConfig, StoreEventIndex, StoreSyncSummary } from "./types.ts";
 
 const PRODUCT_STATE_SHARD_SIZE = 1000;
+const PRODUCT_STATE_SHARD_TARGET_BYTES = DEFAULT_JSONL_SHARD_TARGET_BYTES;
 const LATEST_EVENTS_LIMIT = 1000;
+const LATEST_EVENTS_TARGET_BYTES = 5 * 1024 * 1024;
+
+interface EventFileBatch {
+  path: string;
+  events: ProductEvent[];
+}
 
 function isObject(value: JsonValue | undefined): value is JsonObject {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -114,19 +122,20 @@ async function readEventIndex(worktreeDir: string): Promise<StoreEventIndex | nu
   }
 }
 
-async function buildEventIndex(worktreeDir: string, storeId: string, generatedAt: string, newEventFile: string | undefined, newEvents: ProductEvent[]): Promise<StoreEventIndex> {
+async function buildEventIndex(worktreeDir: string, storeId: string, generatedAt: string, newEventFiles: EventFileBatch[]): Promise<StoreEventIndex> {
   const previous = await readEventIndex(worktreeDir);
   const files = new Map<string, StoreEventIndex["files"][number]>();
   if (previous) for (const file of previous.files) files.set(file.path, file);
 
-  if (newEventFile && newEvents.length > 0) {
-    files.set(newEventFile, {
-      path: newEventFile,
-      count: newEvents.length,
-      firstObservedAt: newEvents[0]?.observedAt ?? generatedAt,
-      lastObservedAt: newEvents.at(-1)?.observedAt ?? generatedAt,
-      eventTypes: countEventTypes(newEvents),
-      hash: sha256Text(newEvents.map((event) => event.eventId).join("\n") + "\n")
+  for (const eventFile of newEventFiles) {
+    if (eventFile.events.length === 0) continue;
+    files.set(eventFile.path, {
+      path: eventFile.path,
+      count: eventFile.events.length,
+      firstObservedAt: eventFile.events[0]?.observedAt ?? generatedAt,
+      lastObservedAt: eventFile.events.at(-1)?.observedAt ?? generatedAt,
+      eventTypes: countEventTypes(eventFile.events),
+      hash: sha256Text(eventFile.events.map((event) => event.eventId).join("\n") + "\n")
     });
   }
 
@@ -183,6 +192,29 @@ export function productsHashFromRecords(records: Array<{ productId: string; hash
   return sha256Text(records.map((r) => `${r.productId}\t${r.hash}`).sort().join("\n") + "\n");
 }
 
+function assertGitSafeJsonl(text: string, label: string): void {
+  const bytes = utf8ByteLength(text);
+  if (bytes >= GITHUB_BLOCKED_BLOB_BYTES) {
+    throw new Error(`${label} is ${bytes} bytes, which exceeds GitHub's 100 MiB blob limit`);
+  }
+}
+
+function latestEventsJsonl(events: ProductEvent[]): string {
+  const lines: string[] = [];
+  let bytes = 0;
+  for (let i = events.length - 1; i >= 0 && lines.length < LATEST_EVENTS_LIMIT; i -= 1) {
+    const line = `${JSON.stringify(events[i])}\n`;
+    const lineBytes = utf8ByteLength(line);
+    if (lineBytes >= GITHUB_BLOCKED_BLOB_BYTES) {
+      throw new Error(`latest event ${events[i]?.eventId ?? "<unknown>"} is ${lineBytes} bytes, which exceeds GitHub's 100 MiB blob limit`);
+    }
+    if (lines.length > 0 && bytes + lineBytes > LATEST_EVENTS_TARGET_BYTES) break;
+    lines.unshift(line);
+    bytes += lineBytes;
+  }
+  return lines.join("");
+}
+
 export async function writeResolvedStoreState(params: {
   worktreeDir: string;
   store: StoreConfig;
@@ -190,9 +222,11 @@ export async function writeResolvedStoreState(params: {
   fetchedProducts: JsonObject[];
   events: ProductEvent[];
   eventFile?: string;
+  eventFiles?: EventFileBatch[];
   summary: StoreSyncSummary;
 }): Promise<{ productIndex: ProductStateIndex; eventIndex: StoreEventIndex }> {
   const { worktreeDir, store, observedAt, fetchedProducts, events, eventFile, summary } = params;
+  const eventFiles = params.eventFiles ?? (eventFile && events.length > 0 ? [{ path: eventFile, events }] : []);
   const stateDir = path.join(worktreeDir, "state");
   const shardDir = path.join(stateDir, "products");
   await rm(shardDir, { recursive: true, force: true });
@@ -202,11 +236,16 @@ export async function writeResolvedStoreState(params: {
   const shards: ProductStateIndex["shards"] = [];
   const indexRecords: ProductStateIndex["records"] = [];
 
-  for (let i = 0; i < records.length; i += PRODUCT_STATE_SHARD_SIZE) {
-    const shardRecords = records.slice(i, i + PRODUCT_STATE_SHARD_SIZE);
+  let shardRecords: ProductStateRecord[] = [];
+  let shardLines: string[] = [];
+  let shardBytes = 0;
+
+  const flushProductShard = async (): Promise<void> => {
+    if (shardRecords.length === 0) return;
     const shardNumber = String(shards.length).padStart(5, "0");
     const shardPath = `state/products/${shardNumber}.jsonl`;
-    const jsonl = shardRecords.map((record) => JSON.stringify(record)).join("\n") + (shardRecords.length ? "\n" : "");
+    const jsonl = shardLines.join("");
+    assertGitSafeJsonl(jsonl, shardPath);
     await writeFile(path.join(worktreeDir, shardPath), jsonl, "utf8");
     shards.push({
       path: shardPath,
@@ -218,7 +257,25 @@ export async function writeResolvedStoreState(params: {
     for (const record of shardRecords) {
       indexRecords.push({ productId: record.productId, hash: record.hash, path: record.path, shardPath, summary: record.summary });
     }
+    shardRecords = [];
+    shardLines = [];
+    shardBytes = 0;
+  };
+
+  for (const record of records) {
+    const line = `${JSON.stringify(record)}\n`;
+    const lineBytes = utf8ByteLength(line);
+    if (lineBytes >= GITHUB_BLOCKED_BLOB_BYTES) {
+      throw new Error(`state record for product ${record.productId} is ${lineBytes} bytes, which exceeds GitHub's 100 MiB blob limit`);
+    }
+    const wouldExceedCount = shardRecords.length >= PRODUCT_STATE_SHARD_SIZE;
+    const wouldExceedBytes = shardRecords.length > 0 && shardBytes + lineBytes > PRODUCT_STATE_SHARD_TARGET_BYTES;
+    if (wouldExceedCount || wouldExceedBytes) await flushProductShard();
+    shardRecords.push(record);
+    shardLines.push(line);
+    shardBytes += lineBytes;
   }
+  await flushProductShard();
 
   const productIndex: ProductStateIndex = {
     schemaVersion: 1,
@@ -233,12 +290,13 @@ export async function writeResolvedStoreState(params: {
     records: indexRecords
   };
 
-  const eventIndex = await buildEventIndex(worktreeDir, store.id, observedAt, eventFile, events);
-  const latestEvents = events.slice(-LATEST_EVENTS_LIMIT);
+  const eventIndex = await buildEventIndex(worktreeDir, store.id, observedAt, eventFiles);
+  const latestEvents = latestEventsJsonl(events);
 
   await writeFile(path.join(stateDir, "products.index.json"), stableStringify(productIndex as never), "utf8");
   await writeFile(path.join(stateDir, "events.index.json"), stableStringify(eventIndex as never), "utf8");
-  await writeFile(path.join(stateDir, "latest-events.jsonl"), latestEvents.map((event) => JSON.stringify(event)).join("\n") + (latestEvents.length ? "\n" : ""), "utf8");
+  assertGitSafeJsonl(latestEvents, "state/latest-events.jsonl");
+  await writeFile(path.join(stateDir, "latest-events.jsonl"), latestEvents, "utf8");
   await writeFile(path.join(stateDir, "run-summary.json"), stableStringify({ schemaVersion: 1, kind: "store-run-summary", source: "ecwid", storeId: store.id, generatedAt: observedAt, summary } as never), "utf8");
 
   return { productIndex, eventIndex };

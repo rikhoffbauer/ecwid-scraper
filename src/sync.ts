@@ -2,7 +2,7 @@ import { mkdir, readdir, readFile, rm, unlink, writeFile } from "node:fs/promise
 import path from "node:path";
 import { stableStringify, sha256Text } from "./canonical-json.ts";
 import { fetchAllProducts, type FetchAllProductsOptions } from "./ecwid.ts";
-import { eventJsonl, eventRunDigest, createdEvent, deletedEvent, fieldChangedEvents } from "./events.ts";
+import { eventJsonlShards, createdEvent, deletedEvent, fieldChangedEvents } from "./events.ts";
 import { diffJson } from "./json-diff.ts";
 import { safePathSegment } from "./safe-id.ts";
 import type { AppConfig, JsonObject, ProductEvent, ProductSnapshotRecord, StoreConfig, StoreSyncSummary, SyncSummary } from "./types.ts";
@@ -81,6 +81,7 @@ async function writeStoreManifest(params: {
   productCount: number;
   productsHash: string;
   eventFile?: string;
+  eventFiles?: string[];
 }): Promise<void> {
   const manifestPath = path.join(params.storeDir, "store.json");
   const manifest = {
@@ -92,7 +93,8 @@ async function writeStoreManifest(params: {
     productsHash: params.productsHash,
     lastChangedAt: params.observedAt,
     lastChangedRunId: params.runId,
-    lastEventFile: params.eventFile ?? null
+    lastEventFile: params.eventFile ?? null,
+    lastEventFiles: params.eventFiles ?? (params.eventFile ? [params.eventFile] : [])
   };
   await writeFile(manifestPath, stableStringify(manifest as never), "utf8");
 }
@@ -162,14 +164,19 @@ async function syncStore(
 
   const productsHash = storeProductsHash(nextRecords);
   let eventFile: string | undefined;
+  let eventFiles: string[] | undefined;
 
   if (events.length > 0) {
-    const digest = eventRunDigest(events);
     const dayPath = observedAt.slice(0, 10).replaceAll("-", "/");
     const eventDir = path.join(root, config.eventsRoot, safePathSegment(store.id), dayPath);
-    eventFile = path.join(config.eventsRoot, safePathSegment(store.id), dayPath, `${digest}.jsonl`);
     await mkdir(eventDir, { recursive: true });
-    await writeFile(path.join(eventDir, `${digest}.jsonl`), eventJsonl(events), "utf8");
+    eventFiles = [];
+    for (const shard of eventJsonlShards(events)) {
+      const relativePath = path.join(config.eventsRoot, safePathSegment(store.id), dayPath, shard.fileName);
+      await writeFile(path.join(eventDir, shard.fileName), shard.text, "utf8");
+      eventFiles.push(relativePath);
+    }
+    eventFile = eventFiles[0];
     await writeStoreManifest({
       store,
       storeDir,
@@ -177,7 +184,8 @@ async function syncStore(
       runId,
       productCount: nextRecords.length,
       productsHash,
-      eventFile
+      eventFile,
+      eventFiles
     });
   } else if (!(await pathExists(path.join(storeDir, "store.json")))) {
     await writeStoreManifest({
@@ -198,6 +206,7 @@ async function syncStore(
     deleted,
     fieldEvents,
     eventFile,
+    eventFiles,
     productsHash
   };
 }

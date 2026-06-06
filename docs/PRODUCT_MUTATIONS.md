@@ -98,7 +98,7 @@ bun run src/apply-product-mutations.ts \
 The processor applies requests to `stores/ecwid/<storeId>` and regenerates:
 
 - `products/<id>.json`
-- `events/YYYY/MM/DD/<digest>.jsonl`
+- `events/YYYY/MM/DD/<digest>.jsonl` or deterministic `.part-N-of-M.jsonl` shards for large mutation runs
 - `state/products.index.json`
 - `state/products/*.jsonl`
 - `state/events.index.json`

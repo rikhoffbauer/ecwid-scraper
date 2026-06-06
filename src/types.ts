@@ -98,6 +98,7 @@ export interface StoreSyncSummary {
   deleted: number;
   fieldEvents: number;
   eventFile?: string;
+  eventFiles?: string[];
   productsHash: string;
 }
 

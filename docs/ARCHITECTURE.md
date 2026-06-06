@@ -13,7 +13,7 @@ README.md
 config.json                 # redacted per-store config
 store.json                  # sync metadata and product hash
 products/<id>.json          # current product snapshot, one file per product
-events/YYYY/MM/DD/*.jsonl   # append-only atomic product events
+events/YYYY/MM/DD/*.jsonl   # append-only atomic product events, sharded for large runs
 state/products.index.json   # fast product listing/search metadata
 state/products/*.jsonl      # sharded resolved full product state
 state/events.index.json     # fast event listing/counts
