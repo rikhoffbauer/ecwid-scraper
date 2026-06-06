@@ -1,20 +1,48 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { Octokit } from "@octokit/rest";
-import { buildAnalysisSnapshot, clusterProducts, dealCandidates, priceIndex, productName, productPrice } from "./analysis";
+import { buildAnalysisSnapshot, clusterProducts, dealCandidates, priceIndex, productName as loadedProductName, productPrice as loadedProductPrice } from "./analysis";
+import { buildCatalogProducts, catalogContext, categoryText, formatPrice, hasMeaningfulAttributes, itemToLoadedProduct, productImageUrl, productKey, productName, productPrice, productUrl, searchableText, similarProducts, stockLabel, summarizeHistory, type CatalogProduct } from "./catalog";
 import { browserSyncStore, loadStoreStateProducts } from "./client-sync";
-import { createBranchFrom, createPullRequest, deleteRepoSecret, dispatchWorkflow, getAuthenticatedUser, getTreeFilesByPath, listBranches, listFiles, listRepoSecrets, loadConfig, makeOctokit, parseRepository, readBlobText, readBlobTextByPath, readTextFile, setRepoSecret, writeJsonFile } from "./github";
+import { createBranchFrom, createPullRequest, deleteRepoSecret, dispatchWorkflow, getAuthenticatedUser, getTreeFilesByPath, listBranches, listFiles, listRepoSecrets, loadConfig, makeOctokit, parseRepository, readBlobText, readBlobTextByPath, setRepoSecret, writeJsonFile } from "./github";
+import { EMPTY_LOCAL_CATALOGUE_STATE, loadLocalCatalogueState, makeListId, saveLocalCatalogueState, type LocalCatalogueState } from "./idb";
 import { parseJsonObject, safeJsonPreview, safePathSegment, stableStringify } from "./json";
-import type { AnalysisSnapshot, AppConfig, LoadedProduct, ProductEvent, ProductMutationBatch, ProductStateIndex, RepoSecretSummary, RepoTarget, StoreConfig, StoreEventIndex, StoreManifest, StoreWebhookConfig, TreeFile } from "./types";
+import { compileProductQuery } from "./query-language";
+import type { AnalysisSnapshot, AppConfig, LoadedProduct, ProductEvent, ProductMutationBatch, ProductStateIndex, ProductStateIndexRecord, RepoSecretSummary, RepoTarget, StoreConfig, StoreEventIndex, StoreManifest, StoreWebhookConfig, TreeFile } from "./types";
 
-type TabId = "overview" | "stores" | "secrets" | "sync" | "mutations" | "products" | "events" | "analysis" | "files";
+type TabId = "browse" | "overview" | "stores" | "sync" | "mutations" | "secrets" | "events" | "analysis" | "files";
+type ViewMode = "grid" | "list" | "table";
 type Notice = { kind: "info" | "success" | "error"; text: string } | null;
+type SortKey = "name" | "store" | "price" | "sku" | "stock" | "id" | "category" | "favorite";
+
+type ProductDetail = {
+  item: CatalogProduct;
+  product?: Record<string, unknown>;
+  history?: ProductEvent[];
+  historySummary?: ReturnType<typeof summarizeHistory>;
+  matches?: ReturnType<typeof similarProducts>;
+};
 
 const DEFAULT_REPOSITORY = "rikhoffbauer/ecwid-scraper";
 const DEFAULT_BRANCH = "main";
 const CONFIG_PATH = "config/ecwid-stores.json";
 const SYNC_WORKFLOW_ID = "sync-ecwid.yml";
 const PRODUCT_MUTATION_WORKFLOW_ID = "product-mutations.yml";
+const TOKEN_STORAGE_KEY = "ecwid-ui.token";
 const EVENT_TYPES = ["product.created", "product.deleted", "product.field_changed"] as const;
+
+const TABLE_COLUMNS = [
+  ["image", "Image"],
+  ["store", "Store"],
+  ["name", "Name"],
+  ["sku", "SKU"],
+  ["price", "Price"],
+  ["stock", "Stock"],
+  ["category", "Category"],
+  ["id", "ID"],
+  ["hash", "Hash"],
+  ["actions", "Actions"]
+] as const;
+type TableColumn = typeof TABLE_COLUMNS[number][0];
 
 function normalizeSecretName(storeId: string): string {
   const body = storeId.trim().replace(/[^A-Za-z0-9_]/g, "_").replace(/^([0-9])/, "_$1").toUpperCase();
@@ -32,9 +60,9 @@ function formatBytes(value?: number): string {
   return `${(value / 1024 ** 2).toFixed(1)} MB`;
 }
 
-function useSessionState(key: string, fallback: string): [string, (value: string) => void] {
-  const [value, setValue] = useState(() => sessionStorage.getItem(key) ?? fallback);
-  return [value, (next) => { setValue(next); sessionStorage.setItem(key, next); }];
+function useStoredState(key: string, fallback: string, storage: Storage = localStorage): [string, (value: string) => void] {
+  const [value, setValue] = useState(() => storage.getItem(key) ?? fallback);
+  return [value, (next) => { setValue(next); storage.setItem(key, next); }];
 }
 
 function eventCounts(events: ProductEvent[]): Record<string, number> {
@@ -58,16 +86,20 @@ function updateWebhook(stores: StoreConfig[], storeIndex: number, hookIndex: num
   });
 }
 
+function safeProductId(value: unknown): string {
+  return typeof value === "string" || typeof value === "number" ? String(value) : "";
+}
+
 function Field(props: { label: string; value: string; onChange: (value: string) => void; type?: string; placeholder?: string; help?: string }) {
   return <label className="field"><span>{props.label}</span><input type={props.type ?? "text"} value={props.value} placeholder={props.placeholder} onChange={(event) => props.onChange(event.currentTarget.value)} />{props.help ? <small>{props.help}</small> : null}</label>;
 }
 
-function TextField(props: { label: string; value: string; onChange: (value: string) => void; placeholder?: string; help?: string }) {
-  return <label className="field"><span>{props.label}</span><textarea value={props.value} placeholder={props.placeholder} onChange={(event) => props.onChange(event.currentTarget.value)} />{props.help ? <small>{props.help}</small> : null}</label>;
+function TextField(props: { label: string; value: string; onChange: (value: string) => void; placeholder?: string; help?: string; rows?: number }) {
+  return <label className="field"><span>{props.label}</span><textarea rows={props.rows} value={props.value} placeholder={props.placeholder} onChange={(event) => props.onChange(event.currentTarget.value)} />{props.help ? <small>{props.help}</small> : null}</label>;
 }
 
-function Section(props: { title: string; description?: string; right?: React.ReactNode; children: React.ReactNode }) {
-  return <section className="panel"><div className="panel-head"><div><h2>{props.title}</h2>{props.description ? <p>{props.description}</p> : null}</div>{props.right ? <div className="panel-actions">{props.right}</div> : null}</div>{props.children}</section>;
+function Section(props: { title: string; description?: string; right?: ReactNode; children: ReactNode; className?: string }) {
+  return <section className={`panel ${props.className ?? ""}`}><div className="panel-head"><div><h2>{props.title}</h2>{props.description ? <p>{props.description}</p> : null}</div>{props.right ? <div className="panel-actions">{props.right}</div> : null}</div>{props.children}</section>;
 }
 
 function NoticeBar({ notice }: { notice: Notice }) {
@@ -79,6 +111,16 @@ function JsonBlock(props: { value: unknown }) {
   return <pre className="json">{typeof props.value === "string" ? props.value : safeJsonPreview(props.value)}</pre>;
 }
 
+function EmptyImage() {
+  return <div className="product-image-placeholder">No image</div>;
+}
+
+function ProductImage({ item, product }: { item: CatalogProduct; product?: Record<string, unknown> }) {
+  const imageUrl = productImageUrl(item.summary, product);
+  if (!imageUrl) return <EmptyImage />;
+  return <img className="product-image" src={imageUrl} alt={productName(item.summary, product)} loading="lazy" />;
+}
+
 function parseWebhookEvents(value: string): StoreWebhookConfig["events"] {
   const items = value.split(",").map((item) => item.trim()).filter(Boolean);
   return (items.length ? items : ["*"]) as StoreWebhookConfig["events"];
@@ -86,7 +128,7 @@ function parseWebhookEvents(value: string): StoreWebhookConfig["events"] {
 
 function cleanStore(store: StoreConfig, config: AppConfig): StoreConfig {
   const id = store.id.trim();
-  const cleaned: StoreConfig = {
+  return {
     id,
     name: store.name?.trim() || undefined,
     url: store.url?.trim() || undefined,
@@ -106,7 +148,6 @@ function cleanStore(store: StoreConfig, config: AppConfig): StoreConfig {
       headers: hook.headers
     }))
   };
-  return cleaned;
 }
 
 async function loadJsonFromBranch<T>(octokit: Octokit, target: RepoTarget, branch: string, path: string): Promise<T | null> {
@@ -120,12 +161,30 @@ async function loadJsonFromBranch<T>(octokit: Octokit, target: RepoTarget, branc
   }
 }
 
+function selectedRecord(index: ProductStateIndex | null | undefined, productId: string): ProductStateIndexRecord | undefined {
+  return index?.records.find((record) => record.productId === productId);
+}
+
+function sortValue(item: CatalogProduct, key: SortKey, favorites: Set<string>): string | number | boolean {
+  if (key === "price") return productPrice(item.summary) ?? Number.POSITIVE_INFINITY;
+  if (key === "store") return item.storeName;
+  if (key === "sku") return item.summary.sku ?? "";
+  if (key === "stock") return item.summary.quantity ?? (item.summary.inStock === false ? -1 : 0);
+  if (key === "id") return item.productId;
+  if (key === "category") return categoryText(item.summary);
+  if (key === "favorite") return favorites.has(item.key);
+  return productName(item.summary);
+}
+
+function includesListProduct(listKeys: string[], key: string): boolean {
+  return listKeys.includes(key);
+}
+
 export function App() {
-  const [repository, setRepository] = useSessionState("ecwid-ui.repository", DEFAULT_REPOSITORY);
-  const [branch, setBranch] = useSessionState("ecwid-ui.branch", DEFAULT_BRANCH);
-  const [token, setToken] = useState(() => sessionStorage.getItem("ecwid-ui.token") ?? "");
-  const [keepToken, setKeepToken] = useState(() => sessionStorage.getItem("ecwid-ui.keepToken") === "true");
-  const [tab, setTab] = useState<TabId>("overview");
+  const [repository, setRepository] = useStoredState("ecwid-ui.repository", DEFAULT_REPOSITORY);
+  const [branch, setBranch] = useStoredState("ecwid-ui.branch", DEFAULT_BRANCH);
+  const [token, setTokenState] = useState(() => localStorage.getItem(TOKEN_STORAGE_KEY) ?? "");
+  const [tab, setTab] = useState<TabId>("browse");
   const [notice, setNotice] = useState<Notice>(null);
   const [busy, setBusy] = useState(false);
   const [authUser, setAuthUser] = useState("");
@@ -148,7 +207,6 @@ export function App() {
   const [tokensJson, setTokensJson] = useState("{}");
   const [clusterThreshold, setClusterThreshold] = useState("0.55");
   const [dealThreshold, setDealThreshold] = useState("0.75");
-  const [productSearch, setProductSearch] = useState("");
   const [syncMaxProducts, setSyncMaxProducts] = useState("");
   const [analysisSnapshot, setAnalysisSnapshot] = useState<AnalysisSnapshot | null>(null);
   const [mutationOp, setMutationOp] = useState<"upsert" | "delete">("upsert");
@@ -156,6 +214,26 @@ export function App() {
   const [mutationJson, setMutationJson] = useState("{\n  \"id\": \"new-product-id\",\n  \"name\": \"New product\",\n  \"price\": 0\n}");
   const [mutationNote, setMutationNote] = useState("");
   const [mutationAllowOutdatedBase, setMutationAllowOutdatedBase] = useState(false);
+
+  const [query, setQuery] = useState("");
+  const [viewMode, setViewMode] = useState<ViewMode>("grid");
+  const [showHidden, setShowHidden] = useState(false);
+  const [storeFilter, setStoreFilter] = useState<string[]>([]);
+  const [sortKey, setSortKey] = useState<SortKey>("name");
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
+  const [visibleColumns, setVisibleColumns] = useState<TableColumn[]>(["image", "store", "name", "sku", "price", "stock", "category", "actions"]);
+  const [detail, setDetail] = useState<ProductDetail | null>(null);
+  const [localState, setLocalState] = useState<LocalCatalogueState>(EMPTY_LOCAL_CATALOGUE_STATE);
+  const [newListName, setNewListName] = useState("");
+  const [activeListId, setActiveListId] = useState<"all" | "favorites" | string>("all");
+
+  useEffect(() => {
+    loadLocalCatalogueState().then(setLocalState).catch((error) => setNotice({ kind: "error", text: `Loading IndexedDB lists failed: ${(error as Error).message}` }));
+  }, []);
+
+  useEffect(() => {
+    saveLocalCatalogueState(localState).catch((error) => setNotice({ kind: "error", text: `Saving IndexedDB lists failed: ${(error as Error).message}` }));
+  }, [localState]);
 
   const target = useMemo<RepoTarget | null>(() => {
     try { return { ...parseRepository(repository), branch: branch.trim() || DEFAULT_BRANCH }; }
@@ -169,21 +247,48 @@ export function App() {
   const selectedFiles = selectedStore ? storeFiles[selectedStore.id] ?? [] : [];
   const selectedProductIndex = selectedStore ? productIndexes[selectedStore.id] : null;
   const selectedEventIndex = selectedStore ? eventIndexes[selectedStore.id] : null;
-  const filteredProductRecords = (selectedProductIndex?.records ?? []).filter((record) => {
-    const q = productSearch.trim().toLowerCase();
-    if (!q) return true;
-    return [record.productId, record.summary.name, record.summary.sku, record.summary.url, ...(record.summary.categoryNames ?? [])].filter(Boolean).join(" ").toLowerCase().includes(q);
-  });
+  const favorites = useMemo(() => new Set(localState.favorites), [localState.favorites]);
+  const activeList = activeListId === "all" || activeListId === "favorites" ? null : localState.lists.find((list) => list.id === activeListId) ?? null;
+  const activeListKeys = useMemo(() => new Set(activeList?.productKeys ?? []), [activeList]);
+
+  const recordsByStore = useMemo(() => Object.fromEntries(Object.entries(productIndexes).map(([storeId, index]) => [storeId, index?.records ?? []])), [productIndexes]);
+  const catalog = useMemo(() => buildCatalogProducts(config, recordsByStore, storeBranch), [config, recordsByStore]);
+  const compiledQuery = useMemo(() => compileProductQuery(query), [query]);
+  const visibleStoreIds = storeFilter.length ? new Set(storeFilter) : null;
+  const filteredCatalog = useMemo(() => {
+    const filtered = catalog.filter((item) => {
+      if (!showHidden && !hasMeaningfulAttributes(item)) return false;
+      if (visibleStoreIds && !visibleStoreIds.has(item.storeId)) return false;
+      if (activeListId === "favorites" && !favorites.has(item.key)) return false;
+      if (activeList && !activeListKeys.has(item.key)) return false;
+      if (compiledQuery.error) return false;
+      return compiledQuery.matches(catalogContext(item), searchableText(item));
+    });
+    filtered.sort((a, b) => {
+      const av = sortValue(a, sortKey, favorites);
+      const bv = sortValue(b, sortKey, favorites);
+      let result: number;
+      if (typeof av === "number" && typeof bv === "number") result = av - bv;
+      else if (typeof av === "boolean" && typeof bv === "boolean") result = Number(av) - Number(bv);
+      else result = String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: "base" });
+      return sortDirection === "asc" ? result : -result;
+    });
+    return filtered;
+  }, [catalog, showHidden, visibleStoreIds, activeListId, favorites, activeList, activeListKeys, compiledQuery, sortKey, sortDirection]);
+  const hiddenCount = catalog.length - catalog.filter((item) => hasMeaningfulAttributes(item)).length;
   const clusters = useMemo(() => clusterProducts(products, Number(clusterThreshold) || 0.55), [products, clusterThreshold]);
   const prices = useMemo(() => priceIndex(clusters), [clusters]);
   const deals = useMemo(() => dealCandidates(clusters, Number(dealThreshold) || 0.75), [clusters, dealThreshold]);
-  const tabs: Array<[TabId, string]> = [["overview", "Overview"], ["stores", "Stores"], ["secrets", "Secrets"], ["sync", "Sync"], ["mutations", "Product edits"], ["products", "Products"], ["events", "Events"], ["analysis", "Analysis"], ["files", "Files"]];
+  const tabs: Array<[TabId, string]> = [["browse", "Browse"], ["overview", "Overview"], ["stores", "Stores"], ["sync", "Sync"], ["mutations", "Product edits"], ["secrets", "Secrets"], ["events", "Events"], ["analysis", "Analysis"], ["files", "Files"]];
 
-  function persistToken(nextKeep: boolean, nextToken = token) {
-    setKeepToken(nextKeep);
-    sessionStorage.setItem("ecwid-ui.keepToken", String(nextKeep));
-    if (nextKeep) sessionStorage.setItem("ecwid-ui.token", nextToken);
-    else sessionStorage.removeItem("ecwid-ui.token");
+  function setToken(next: string) {
+    setTokenState(next);
+    localStorage.setItem(TOKEN_STORAGE_KEY, next);
+  }
+
+  function clearToken() {
+    setTokenState("");
+    localStorage.removeItem(TOKEN_STORAGE_KEY);
   }
 
   async function run<T>(label: string, task: () => Promise<T>): Promise<T | undefined> {
@@ -208,6 +313,7 @@ export function App() {
       setConfig(nextConfig);
       setDraftStores(nextConfig.stores.map((store) => ({ ...store, webhooks: [...(store.webhooks ?? [])] })));
       setSelectedStoreId((current) => current || nextConfig.stores[0]?.id || "");
+      setStoreFilter((current) => current.filter((id) => nextConfig.stores.some((store) => store.id === id)));
       setMainFiles(nextMainFiles);
       const [branches, nextSecrets] = await Promise.all([listBranches(octokit, target, nextConfig.storeBranchPrefix), listRepoSecrets(octokit, target).catch(() => [])]);
       setStoreBranches(branches);
@@ -258,10 +364,6 @@ export function App() {
     });
   }
 
-  async function saveTokensJsonSecret() {
-    await saveSecret("ECWID_STORE_TOKENS_JSON", tokensJson);
-  }
-
   async function removeSecret(name: string) {
     await run(`Deleting ${name}`, async () => {
       if (!octokit || !target) return;
@@ -271,7 +373,7 @@ export function App() {
   }
 
   async function dispatchStoreSync(storeId?: string, force = true) {
-    await run("Dispatching scheduled sync workflow", async () => {
+    await run("Dispatching sync workflow", async () => {
       if (!octokit || !target) return;
       await dispatchWorkflow(octokit, target, SYNC_WORKFLOW_ID, { store_id: storeId ?? "", force });
     });
@@ -286,11 +388,14 @@ export function App() {
     });
   }
 
-  async function loadProductFile(storeId: string, filePath: string) {
+  async function loadProductFile(storeId: string, filePath: string, setAsDetail?: CatalogProduct) {
     await run("Loading product JSON", async () => {
       if (!octokit || !target || !config) return;
       const text = await readBlobTextByPath(octokit, target, filePath, storeBranch(config, storeId));
-      setSelectedJson(parseJsonObject(text, filePath));
+      const product = parseJsonObject<Record<string, unknown>>(text, filePath);
+      setSelectedJson(product);
+      if (setAsDetail) setDetail((current) => ({ ...(current?.item.key === setAsDetail.key ? current : { item: setAsDetail }), product }));
+      return product;
     });
   }
 
@@ -304,26 +409,54 @@ export function App() {
     });
   }
 
-  async function prepareProductEdit(record: ProductStateIndex["records"][number]) {
+  async function openProductDetail(item: CatalogProduct) {
+    setDetail({ item, matches: similarProducts(item, catalog) });
+    setTab("browse");
+    await loadProductFile(item.storeId, item.path, item);
+  }
+
+  async function loadProductHistory(item: CatalogProduct) {
+    await run("Loading product history", async () => {
+      if (!octokit || !target || !config) return;
+      const index = eventIndexes[item.storeId];
+      if (!index) throw new Error("No event index loaded for this store.");
+      const matches: ProductEvent[] = [];
+      const files = [...index.files].reverse();
+      for (const file of files) {
+        const text = await readBlobTextByPath(octokit, target, file.path, storeBranch(config, item.storeId));
+        for (const line of text.trim().split("\n").filter(Boolean)) {
+          const event = JSON.parse(line) as ProductEvent;
+          if (event.productId === item.productId) matches.push(event);
+        }
+      }
+      matches.sort((a, b) => a.observedAt.localeCompare(b.observedAt));
+      setDetail((current) => current && current.item.key === item.key ? { ...current, history: matches, historySummary: summarizeHistory(matches) } : current);
+      return `Loaded ${matches.length} product history events.`;
+    });
+  }
+
+  async function prepareProductEdit(record: ProductStateIndexRecord, storeId = selectedStore?.id) {
     await run("Preparing product edit", async () => {
-      if (!octokit || !target || !config || !selectedStore) return;
-      const text = await readBlobTextByPath(octokit, target, record.path, storeBranch(config, selectedStore.id));
+      if (!octokit || !target || !config || !storeId) return;
+      const text = await readBlobTextByPath(octokit, target, record.path, storeBranch(config, storeId));
       setMutationOp("upsert");
       setMutationProductId(record.productId);
       setMutationJson(JSON.stringify(JSON.parse(text), null, 2));
+      setSelectedStoreId(storeId);
       setTab("mutations");
     });
   }
 
-  function prepareProductDelete(record: ProductStateIndex["records"][number]) {
+  function prepareProductDelete(record: ProductStateIndexRecord, storeId = selectedStore?.id) {
     setMutationOp("delete");
     setMutationProductId(record.productId);
     setMutationJson("{}");
+    if (storeId) setSelectedStoreId(storeId);
     setTab("mutations");
   }
 
   function selectedMutationRecord(productId: string) {
-    return selectedProductIndex?.records.find((record) => record.productId === productId);
+    return selectedRecord(selectedProductIndex, productId);
   }
 
   function buildProductMutationRequest(store: StoreConfig): ProductMutationBatch {
@@ -335,61 +468,26 @@ export function App() {
       const productId = mutationProductId.trim();
       if (!productId) throw new Error("Product ID is required for delete.");
       const record = selectedMutationRecord(productId);
-      return {
-        schemaVersion: 1,
-        kind: "ecwid-product-mutation-batch",
-        source: "web-ui",
-        requestId,
-        storeId: store.id,
-        requestedAt,
-        requestedBy: authUser || undefined,
-        baseProductsHash,
-        allowOutdatedBase: mutationAllowOutdatedBase,
-        note: mutationNote.trim() || undefined,
-        operations: [{ op: "delete", productId, expectHash: record?.hash }]
-      };
+      return { schemaVersion: 1, kind: "ecwid-product-mutation-batch", source: "web-ui", requestId, storeId: store.id, requestedAt, requestedBy: authUser || undefined, baseProductsHash, allowOutdatedBase: mutationAllowOutdatedBase, note: mutationNote.trim() || undefined, operations: [{ op: "delete", productId, expectHash: record?.hash }] };
     }
-
     const product = parseJsonObject<Record<string, unknown>>(mutationJson, "product JSON");
     if (product === null || typeof product !== "object" || Array.isArray(product)) throw new Error("Product JSON must be an object.");
-    const rawId = product.id;
-    if (typeof rawId !== "string" && typeof rawId !== "number") throw new Error("Product JSON must contain string/number id.");
-    const productId = String(rawId);
+    const productId = safeProductId(product.id);
+    if (!productId) throw new Error("Product JSON must contain string/number id.");
     const record = selectedMutationRecord(productId);
-    return {
-      schemaVersion: 1,
-      kind: "ecwid-product-mutation-batch",
-      source: "web-ui",
-      requestId,
-      storeId: store.id,
-      requestedAt,
-      requestedBy: authUser || undefined,
-      baseProductsHash,
-      allowOutdatedBase: mutationAllowOutdatedBase,
-      note: mutationNote.trim() || undefined,
-      operations: [{ op: "upsert", productId, product, expectHash: record?.hash }]
-    };
+    return { schemaVersion: 1, kind: "ecwid-product-mutation-batch", source: "web-ui", requestId, storeId: store.id, requestedAt, requestedBy: authUser || undefined, baseProductsHash, allowOutdatedBase: mutationAllowOutdatedBase, note: mutationNote.trim() || undefined, operations: [{ op: "upsert", productId, product, expectHash: record?.hash }] };
   }
 
   async function submitProductMutation(mode: "dispatch" | "pr") {
     await run(mode === "pr" ? "Opening product mutation PR" : "Dispatching product mutation workflow", async () => {
-      if (!octokit || !target || !selectedStore) return;
+      if (!octokit || !target || !selectedStore || !config) return;
       const request = buildProductMutationRequest(selectedStore);
       const requestBranch = `product-mutations/${safePathSegment(request.storeId)}/${safePathSegment(request.requestId)}`;
       const requestPath = `product-mutations/${safePathSegment(request.storeId)}/${safePathSegment(request.requestId)}.json`;
       await createBranchFrom(octokit, target, requestBranch, target.branch);
-      await writeJsonFile(octokit, target, {
-        branch: requestBranch,
-        path: requestPath,
-        value: request,
-        message: `products(ecwid:${request.storeId}): request ${mutationOp} ${request.operations[0]?.productId ?? "product"}`
-      });
+      await writeJsonFile(octokit, target, { branch: requestBranch, path: requestPath, value: request, message: `products(ecwid:${request.storeId}): request ${mutationOp} ${request.operations[0]?.productId ?? "product"}` });
       if (mode === "pr") {
-        const pr = await createPullRequest(octokit, target, {
-          head: requestBranch,
-          title: `products(ecwid:${request.storeId}): ${mutationOp} ${request.operations[0]?.productId ?? "product"}`,
-          body: `Product mutation request written to \`${requestPath}\`. Merge this PR to let the product-mutations workflow apply it to \`${storeBranch(config!, request.storeId)}\`.`
-        });
+        const pr = await createPullRequest(octokit, target, { head: requestBranch, title: `products(ecwid:${request.storeId}): ${mutationOp} ${request.operations[0]?.productId ?? "product"}`, body: `Product mutation request written to \`${requestPath}\`. Merge this PR to let the product-mutations workflow apply it to \`${storeBranch(config, request.storeId)}\`.` });
         return `Opened PR #${pr.number}: ${pr.htmlUrl}`;
       }
       await dispatchWorkflow(octokit, target, PRODUCT_MUTATION_WORKFLOW_ID, { request_ref: requestBranch, request_path: requestPath, push: true }, target.branch);
@@ -402,7 +500,7 @@ export function App() {
       if (!octokit || !target || !config) return;
       const loaded: LoadedProduct[] = [];
       for (const store of config.stores) loaded.push(...await loadStoreStateProducts(octokit, target, storeBranch(config, store.id)));
-      setProducts(loaded);
+      setProducts(loaded.filter((item) => hasMeaningfulAttributes({ summary: item.summary, product: item.product })));
     });
   }
 
@@ -417,79 +515,214 @@ export function App() {
     });
   }
 
-  return <>
-    <header className="hero"><div><p className="eyebrow">Ecwid Product Git Watch</p><h1>Store control plane</h1><p className="lede">Manage stores, secrets, browser-side syncs, resolved state snapshots, event streams, and cross-store analysis from a static GitHub Pages app.</p></div></header>
-    <section className="panel auth-panel">
-      <div className="grid connection-grid">
-        <Field label="Repository" value={repository} onChange={setRepository} placeholder="owner/name" />
-        <Field label="Main branch" value={branch} onChange={setBranch} />
-        <Field label="GitHub token" value={token} onChange={(value) => { setToken(value); if (keepToken) sessionStorage.setItem("ecwid-ui.token", value); }} type="password" help="Needs contents:write; secrets:write for secret management; actions:write only for workflow fallback." />
+  function toggleStoreFilter(storeId: string) {
+    setStoreFilter((current) => current.includes(storeId) ? current.filter((id) => id !== storeId) : [...current, storeId]);
+  }
+
+  function toggleFavorite(key: string) {
+    setLocalState((state) => ({ ...state, favorites: state.favorites.includes(key) ? state.favorites.filter((item) => item !== key) : [...state.favorites, key] }));
+  }
+
+  function createList() {
+    const name = newListName.trim();
+    if (!name) return;
+    const now = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+    const list = { id: makeListId(name), name, productKeys: [], createdAt: now, updatedAt: now };
+    setLocalState((state) => ({ ...state, lists: [...state.lists, list] }));
+    setActiveListId(list.id);
+    setNewListName("");
+  }
+
+  function deleteList(id: string) {
+    setLocalState((state) => ({ ...state, lists: state.lists.filter((list) => list.id !== id) }));
+    if (activeListId === id) setActiveListId("all");
+  }
+
+  function setProductInList(listId: string, key: string, enabled: boolean) {
+    const now = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+    setLocalState((state) => ({
+      ...state,
+      lists: state.lists.map((list) => {
+        if (list.id !== listId) return list;
+        const productKeys = enabled ? [...new Set([...list.productKeys, key])] : list.productKeys.filter((item) => item !== key);
+        return { ...list, productKeys, updatedAt: now };
+      })
+    }));
+  }
+
+  function toggleColumn(column: TableColumn) {
+    setVisibleColumns((columns) => columns.includes(column) ? columns.filter((item) => item !== column) : [...columns, column]);
+  }
+
+  function setSort(next: SortKey) {
+    if (sortKey === next) setSortDirection((direction) => direction === "asc" ? "desc" : "asc");
+    else { setSortKey(next); setSortDirection("asc"); }
+  }
+
+  function productActions(item: CatalogProduct) {
+    const record = selectedRecord(productIndexes[item.storeId], item.productId);
+    return <div className="inline-actions">
+      <button onClick={() => toggleFavorite(item.key)}>{favorites.has(item.key) ? "★" : "☆"}</button>
+      <button onClick={() => openProductDetail(item)}>Details</button>
+      {record ? <button onClick={() => prepareProductEdit(record, item.storeId)}>Edit</button> : null}
+      {record ? <button className="danger" onClick={() => prepareProductDelete(record, item.storeId)}>Delete</button> : null}
+    </div>;
+  }
+
+  function productCard(item: CatalogProduct) {
+    const price = productPrice(item.summary);
+    const url = productUrl(item.summary, item.product, item.storeUrl);
+    return <article className="product-card" key={item.key}>
+      <button className={`favorite ${favorites.has(item.key) ? "active" : ""}`} onClick={() => toggleFavorite(item.key)} aria-label="Toggle favorite">{favorites.has(item.key) ? "★" : "☆"}</button>
+      <button className="image-button" onClick={() => openProductDetail(item)}><ProductImage item={item} /></button>
+      <div className="product-card-body">
+        <div className="product-store">{item.storeName}</div>
+        <button className="product-title" onClick={() => openProductDetail(item)}>{productName(item.summary)}</button>
+        <div className="product-meta"><span>{formatPrice(price)}</span><span>{stockLabel(item.summary)}</span></div>
+        <div className="product-subline">{item.summary.sku || categoryText(item.summary) || item.productId}</div>
+        <div className="product-card-actions">{url ? <a href={url} target="_blank" rel="noreferrer">Open shop</a> : null}<button onClick={() => openProductDetail(item)}>Inspect</button></div>
       </div>
-      <label className="check-row"><input type="checkbox" checked={keepToken} onChange={(event) => persistToken(event.currentTarget.checked)} /> keep GitHub token in this browser session</label>
-      <div className="button-row"><button disabled={busy} onClick={refreshAll}>Refresh</button>{authUser ? <span className="muted">Authenticated as {authUser}</span> : null}</div>
+    </article>;
+  }
+
+  function productListRow(item: CatalogProduct) {
+    const url = productUrl(item.summary, item.product, item.storeUrl);
+    return <article className="product-list-row" key={item.key}>
+      <button className="image-button compact" onClick={() => openProductDetail(item)}><ProductImage item={item} /></button>
+      <div>
+        <div className="product-store">{item.storeName}</div>
+        <button className="product-title" onClick={() => openProductDetail(item)}>{productName(item.summary)}</button>
+        <div className="product-subline">{item.summary.sku ? `SKU ${item.summary.sku}` : item.productId} · {categoryText(item.summary) || "uncategorized"}</div>
+      </div>
+      <div className="list-price"><b>{formatPrice(productPrice(item.summary))}</b><span>{stockLabel(item.summary)}</span></div>
+      <div className="inline-actions">{url ? <a href={url} target="_blank" rel="noreferrer">Shop</a> : null}{productActions(item)}</div>
+    </article>;
+  }
+
+  function productTableCell(column: TableColumn, item: CatalogProduct) {
+    const url = productUrl(item.summary, item.product, item.storeUrl);
+    if (column === "image") return <td><button className="table-image" onClick={() => openProductDetail(item)}><ProductImage item={item} /></button></td>;
+    if (column === "store") return <td>{item.storeName}<br/><span>{item.storeId}</span></td>;
+    if (column === "name") return <td><button className="link-button" onClick={() => openProductDetail(item)}>{productName(item.summary)}</button>{url ? <><br/><a href={url} target="_blank" rel="noreferrer">Original webshop</a></> : null}</td>;
+    if (column === "sku") return <td>{item.summary.sku ?? "—"}</td>;
+    if (column === "price") return <td>{formatPrice(productPrice(item.summary))}</td>;
+    if (column === "stock") return <td>{stockLabel(item.summary)}</td>;
+    if (column === "category") return <td>{categoryText(item.summary) || "—"}</td>;
+    if (column === "id") return <td><code>{item.productId}</code></td>;
+    if (column === "hash") return <td><code>{item.hash.slice(0, 12)}</code></td>;
+    return <td>{productActions(item)}</td>;
+  }
+
+  const catalogueStats = {
+    stores: new Set(catalog.map((item) => item.storeId)).size,
+    visible: filteredCatalog.length,
+    total: catalog.length,
+    hidden: hiddenCount,
+    favorites: localState.favorites.length,
+    lists: localState.lists.length
+  };
+
+  return <>
+    <header className="app-shell-header">
+      <div>
+        <p className="eyebrow">Ecwid Product Git Watch</p>
+        <h1>Catalogue console</h1>
+      </div>
+      <div className="header-metrics"><span>{catalogueStats.visible} visible</span><span>{catalogueStats.stores} stores</span><span>{catalogueStats.favorites} favorites</span></div>
+    </header>
+
+    <section className="connection-panel">
+      <Field label="Repository" value={repository} onChange={setRepository} placeholder="owner/name" />
+      <Field label="Main branch" value={branch} onChange={setBranch} />
+      <Field label="GitHub token" value={token} onChange={setToken} type="password" help="Stored in localStorage for reload-safe browsing. Use Clear token on shared machines." />
+      <div className="connection-actions"><button disabled={busy} onClick={refreshAll}>Refresh</button><button onClick={clearToken}>Clear token</button>{authUser ? <span className="muted">@{authUser}</span> : null}</div>
     </section>
+
     <nav className="tabs">{tabs.map(([id, label]) => <button key={id} className={tab === id ? "active" : ""} onClick={() => setTab(id)}>{label}</button>)}</nav>
     <NoticeBar notice={notice} />
 
+    {tab === "browse" && <div className="catalogue-layout">
+      <aside className="catalogue-sidebar">
+        <Section title="Filters" className="compact-panel">
+          <TextField label="Query" value={query} onChange={setQuery} rows={4} placeholder={'price >= 20 && (name *= "hoodie" || sku ^= HOOD) && name ~= /cotton/i'} help="Full-text for plain text. Expression mode supports &&, ||, !, arithmetic, comparison, pattern operators and regex literals." />
+          {compiledQuery.error ? <div className="query-error">{compiledQuery.error}</div> : <div className="query-hint">{compiledQuery.isSimpleText ? "full-text mode" : "expression mode"}</div>}
+          <div className="segmented"><button className={viewMode === "grid" ? "active" : ""} onClick={() => setViewMode("grid")}>Grid</button><button className={viewMode === "list" ? "active" : ""} onClick={() => setViewMode("list")}>List</button><button className={viewMode === "table" ? "active" : ""} onClick={() => setViewMode("table")}>Table</button></div>
+          <div className="grid two"><label className="field"><span>Sort by</span><select value={sortKey} onChange={(event) => setSortKey(event.currentTarget.value as SortKey)}><option value="name">Name</option><option value="store">Store</option><option value="price">Price</option><option value="sku">SKU</option><option value="stock">Stock</option><option value="category">Category</option><option value="id">ID</option><option value="favorite">Favorite</option></select></label><label className="field"><span>Direction</span><select value={sortDirection} onChange={(event) => setSortDirection(event.currentTarget.value as "asc" | "desc")}><option value="asc">Ascending</option><option value="desc">Descending</option></select></label></div>
+          <label className="check-row"><input type="checkbox" checked={showHidden} onChange={(event) => setShowHidden(event.currentTarget.checked)} /> show disabled / attribute-less products ({hiddenCount})</label>
+          <h3>Stores</h3>
+          <div className="store-filter-list">{config?.stores.map((store) => <button key={store.id} className={!storeFilter.length || storeFilter.includes(store.id) ? "selected" : ""} onClick={() => toggleStoreFilter(store.id)}><span>{store.name ?? store.id}</span><small>{productIndexes[store.id]?.records.length ?? 0}</small></button>)}</div>
+          <div className="button-row"><button onClick={() => setStoreFilter([])}>All stores</button><button onClick={() => setStoreFilter(config?.stores.map((store) => store.id) ?? [])}>Select all</button></div>
+        </Section>
+
+        <Section title="Local lists" description="Stored in IndexedDB only." className="compact-panel">
+          <div className="list-filter"><button className={activeListId === "all" ? "active" : ""} onClick={() => setActiveListId("all")}>All products</button><button className={activeListId === "favorites" ? "active" : ""} onClick={() => setActiveListId("favorites")}>Favorites <span>{localState.favorites.length}</span></button>{localState.lists.map((list) => <button key={list.id} className={activeListId === list.id ? "active" : ""} onClick={() => setActiveListId(list.id)}>{list.name}<span>{list.productKeys.length}</span></button>)}</div>
+          <div className="new-list"><input value={newListName} onChange={(event) => setNewListName(event.currentTarget.value)} placeholder="New list name" /><button onClick={createList}>Create</button></div>
+          {activeList ? <button className="danger" onClick={() => deleteList(activeList.id)}>Delete current list</button> : null}
+        </Section>
+
+        {viewMode === "table" ? <Section title="Columns" className="compact-panel"><div className="column-picker">{TABLE_COLUMNS.map(([id, label]) => <label key={id}><input type="checkbox" checked={visibleColumns.includes(id)} onChange={() => toggleColumn(id)} /> {label}</label>)}</div></Section> : null}
+      </aside>
+
+      <main className="catalogue-main">
+        <div className="catalogue-topbar"><div><b>{filteredCatalog.length}</b><span>products after filters</span></div><div><b>{catalog.length}</b><span>indexed total</span></div><div><b>{catalogueStats.hidden}</b><span>hidden by default</span></div></div>
+        {viewMode === "grid" ? <div className="product-grid">{filteredCatalog.slice(0, 1200).map(productCard)}</div> : null}
+        {viewMode === "list" ? <div className="product-list">{filteredCatalog.slice(0, 1200).map(productListRow)}</div> : null}
+        {viewMode === "table" ? <div className="table-wrap"><table className="product-table"><thead><tr>{visibleColumns.map((column) => <th key={column}>{["store", "name", "sku", "price", "stock", "category", "id"].includes(column) ? <button className="table-sort" onClick={() => setSort(column === "id" ? "id" : column as SortKey)}>{TABLE_COLUMNS.find(([id]) => id === column)?.[1]} {sortKey === column ? (sortDirection === "asc" ? "↑" : "↓") : ""}</button> : TABLE_COLUMNS.find(([id]) => id === column)?.[1]}</th>)}</tr></thead><tbody>{filteredCatalog.slice(0, 1500).map((item) => <tr key={item.key}>{visibleColumns.map((column) => productTableCell(column, item))}</tr>)}</tbody></table></div> : null}
+      </main>
+
+      <aside className="detail-panel">
+        {detail ? <>
+          <div className="detail-media"><ProductImage item={detail.item} product={detail.product} /></div>
+          <div className="detail-head"><div><p className="product-store">{detail.item.storeName}</p><h2>{productName(detail.item.summary, detail.product)}</h2><p>{formatPrice(productPrice(detail.item.summary, detail.product))} · {stockLabel(detail.item.summary)}</p></div><button className={`favorite ${favorites.has(detail.item.key) ? "active" : ""}`} onClick={() => toggleFavorite(detail.item.key)}>{favorites.has(detail.item.key) ? "★" : "☆"}</button></div>
+          <div className="detail-actions">{productUrl(detail.item.summary, detail.product, detail.item.storeUrl) ? <a className="button-link" href={productUrl(detail.item.summary, detail.product, detail.item.storeUrl)} target="_blank" rel="noreferrer">Open original webshop</a> : null}<button onClick={() => loadProductHistory(detail.item)}>Load history</button>{selectedRecord(productIndexes[detail.item.storeId], detail.item.productId) ? <button onClick={() => prepareProductEdit(selectedRecord(productIndexes[detail.item.storeId], detail.item.productId)!, detail.item.storeId)}>Edit</button> : null}</div>
+          <dl className="detail-kv"><dt>Product ID</dt><dd><code>{detail.item.productId}</code></dd><dt>SKU</dt><dd>{detail.item.summary.sku ?? "—"}</dd><dt>Categories</dt><dd>{categoryText(detail.item.summary) || "—"}</dd><dt>Hash</dt><dd><code>{detail.item.hash}</code></dd><dt>File</dt><dd><code>{detail.item.path}</code></dd></dl>
+          <h3>Lists</h3>
+          <div className="detail-lists">{localState.lists.length ? localState.lists.map((list) => <label key={list.id}><input type="checkbox" checked={includesListProduct(list.productKeys, detail.item.key)} onChange={(event) => setProductInList(list.id, detail.item.key, event.currentTarget.checked)} /> {list.name}</label>) : <p className="muted">Create a list to organize this product.</p>}</div>
+          <h3>Other stores / likely same product</h3>
+          <div className="match-list">{(detail.matches ?? similarProducts(detail.item, catalog)).slice(0, 12).map((match) => <button key={match.key} onClick={() => openProductDetail(match)}><span>{productName(match.summary)}</span><small>{match.storeName} · {(match.matchScore * 100).toFixed(0)}% · {formatPrice(productPrice(match.summary))}</small></button>)}</div>
+          <h3>History</h3>
+          {detail.historySummary ? <div className="history-summary"><span>Added: {detail.historySummary.createdAt ?? "unknown"}</span><span>Last edit: {detail.historySummary.lastEditedAt ?? "none"}</span><span>Edits: {detail.historySummary.editCount}</span></div> : <p className="muted">Load history to scan event files for this product.</p>}
+          {detail.history ? <div className="history-list">{detail.history.map((event) => <details key={event.eventId}><summary>{event.observedAt} · {event.eventType}{event.path ? ` · ${event.path}` : ""}</summary><JsonBlock value={event} /></details>)}</div> : null}
+          <h3>Product JSON</h3>{detail.product ? <JsonBlock value={detail.product} /> : <p className="muted">Product JSON loads on demand.</p>}
+        </> : <div className="empty-detail"><h2>Select a product</h2><p>Open details to inspect raw JSON, history, cross-store matches, original webshop links, favorites and lists.</p></div>}
+      </aside>
+    </div>}
+
     {tab === "overview" && <Section title="Overview" description="Current config, store branches, resolved state indexes, and latest sync metadata.">
       <div className="cards"><div className="card"><b>{config?.stores.length ?? 0}</b><span>configured stores</span></div><div className="card"><b>{storeBranches.length}</b><span>store branches</span></div><div className="card"><b>{Object.values(productIndexes).reduce((sum, index) => sum + (index?.productCount ?? 0), 0)}</b><span>indexed products</span></div><div className="card"><b>{Object.values(eventIndexes).reduce((sum, index) => sum + (index?.totalEvents ?? 0), 0)}</b><span>indexed events</span></div></div>
-      <table><thead><tr><th>Store</th><th>Branch</th><th>Interval</th><th>Products</th><th>Events</th><th>Last sync</th><th>Next due</th><th>Action</th></tr></thead><tbody>{config?.stores.map((store) => <tr key={store.id}><td>{store.url ? <a href={store.url} target={"_blank"}>{store.name ?? store.id}</a> : store.name ?? store.id}<br/><span>{store.id}</span></td><td><code>{storeBranch(config, store.id)}</code></td><td>{store.syncIntervalMinutes ?? config.defaultSyncIntervalMinutes} min</td><td>{productIndexes[store.id]?.productCount ?? manifests[store.id]?.productCount ?? "—"}</td><td>{eventIndexes[store.id]?.totalEvents ?? "—"}</td><td>{manifests[store.id]?.lastSyncedAt ?? "—"}</td><td>{manifests[store.id]?.nextSyncNotBefore ?? "—"}</td><td><button onClick={() => { setSelectedStoreId(store.id); setTab("sync"); }}>Sync</button></td></tr>)}</tbody></table>
+      <table><thead><tr><th>Store</th><th>Branch</th><th>Interval</th><th>Products</th><th>Events</th><th>Last sync</th><th>Next due</th><th>Action</th></tr></thead><tbody>{config?.stores.map((store) => <tr key={store.id}><td>{store.url ? <a href={store.url} target="_blank" rel="noreferrer">{store.name ?? store.id}</a> : store.name ?? store.id}<br/><span>{store.id}</span></td><td><code>{storeBranch(config, store.id)}</code></td><td>{store.syncIntervalMinutes ?? config.defaultSyncIntervalMinutes} min</td><td>{productIndexes[store.id]?.productCount ?? manifests[store.id]?.productCount ?? "—"}</td><td>{eventIndexes[store.id]?.totalEvents ?? "—"}</td><td>{manifests[store.id]?.lastSyncedAt ?? "—"}</td><td>{manifests[store.id]?.nextSyncNotBefore ?? "—"}</td><td><button onClick={() => { setSelectedStoreId(store.id); setTab("sync"); }}>Sync</button></td></tr>)}</tbody></table>
     </Section>}
 
     {tab === "stores" && <Section title="Stores" description="Add stores, edit intervals, configure webhooks, then save config/ecwid-stores.json." right={<button className="primary" onClick={saveStores} disabled={busy || !config}>Save stores</button>}>
       <div className="button-row"><button onClick={() => setDraftStores([...draftStores, emptyStore()])}>Add store</button><button onClick={() => config && setDraftStores(config.stores)}>Reset draft</button></div>
       <div className="stack">{draftStores.map((store, index) => <div className="store-editor" key={`${store.id}-${index}`}>
-        <div className="store-editor-grid">
-          <Field label="Store ID" value={store.id} onChange={(value) => setDraftStores(updateStore(draftStores, index, { id: value, tokenEnv: normalizeSecretName(value) }))} />
-          <Field label="Name" value={store.name ?? ""} onChange={(value) => setDraftStores(updateStore(draftStores, index, { name: value }))} />
-          <Field label="URL" value={store.url ?? ""} onChange={(value) => setDraftStores(updateStore(draftStores, index, { url: value }))} />
-          <Field label="Token env" value={store.tokenEnv ?? ""} onChange={(value) => setDraftStores(updateStore(draftStores, index, { tokenEnv: value }))} help="Used by Actions; browser sync asks for the token separately." />
-          <Field label="Interval minutes" type="number" value={String(store.syncIntervalMinutes ?? 30)} onChange={(value) => setDraftStores(updateStore(draftStores, index, { syncIntervalMinutes: Number(value) }))} />
-          <Field label="Limit" type="number" value={String(store.limit ?? 200)} onChange={(value) => setDraftStores(updateStore(draftStores, index, { limit: Number(value) }))} />
-          <Field label="Request delay ms" type="number" value={String(store.requestDelayMs ?? 100)} onChange={(value) => setDraftStores(updateStore(draftStores, index, { requestDelayMs: Number(value) }))} />
-        </div>
+        <div className="store-editor-grid"><Field label="Store ID" value={store.id} onChange={(value) => setDraftStores(updateStore(draftStores, index, { id: value, tokenEnv: normalizeSecretName(value) }))} /><Field label="Name" value={store.name ?? ""} onChange={(value) => setDraftStores(updateStore(draftStores, index, { name: value }))} /><Field label="URL" value={store.url ?? ""} onChange={(value) => setDraftStores(updateStore(draftStores, index, { url: value }))} /><Field label="Token env" value={store.tokenEnv ?? ""} onChange={(value) => setDraftStores(updateStore(draftStores, index, { tokenEnv: value }))} /><Field label="Interval minutes" type="number" value={String(store.syncIntervalMinutes ?? 30)} onChange={(value) => setDraftStores(updateStore(draftStores, index, { syncIntervalMinutes: Number(value) }))} /><Field label="Limit" type="number" value={String(store.limit ?? 200)} onChange={(value) => setDraftStores(updateStore(draftStores, index, { limit: Number(value) }))} /><Field label="Request delay ms" type="number" value={String(store.requestDelayMs ?? 100)} onChange={(value) => setDraftStores(updateStore(draftStores, index, { requestDelayMs: Number(value) }))} /></div>
         <label className="check-row"><input type="checkbox" checked={store.enabled !== false} onChange={(event) => setDraftStores(updateStore(draftStores, index, { enabled: event.currentTarget.checked }))} /> enabled</label>
         <div className="button-row"><button className="danger" onClick={() => setDraftStores(draftStores.filter((_, i) => i !== index))}>Remove store</button>{store.id ? <button onClick={() => { setSelectedStoreId(store.id); setTab("sync"); }}>Open sync</button> : null}</div>
         <h3>Webhooks</h3>
-        {(store.webhooks ?? []).map((hook, hookIndex) => <div className="webhook-editor" key={`${hook.id}-${hookIndex}`}>
-          <div className="store-editor-grid"><Field label="Webhook ID" value={hook.id} onChange={(value) => setDraftStores(updateWebhook(draftStores, index, hookIndex, { id: value }))} /><Field label="URL" value={hook.url} onChange={(value) => setDraftStores(updateWebhook(draftStores, index, hookIndex, { url: value }))} /><Field label="Events" value={(hook.events ?? ["*"]).join(",")} onChange={(value) => setDraftStores(updateWebhook(draftStores, index, hookIndex, { events: parseWebhookEvents(value) }))} help={`* or ${EVENT_TYPES.join(",")}`} /><Field label="Secret env" value={hook.secretEnv ?? ""} onChange={(value) => setDraftStores(updateWebhook(draftStores, index, hookIndex, { secretEnv: value || undefined }))} /></div>
-          <label className="check-row"><input type="checkbox" checked={hook.enabled !== false} onChange={(event) => setDraftStores(updateWebhook(draftStores, index, hookIndex, { enabled: event.currentTarget.checked }))} /> enabled</label>
-          <button className="danger" onClick={() => setDraftStores(updateStore(draftStores, index, { webhooks: (store.webhooks ?? []).filter((_, i) => i !== hookIndex) }))}>Remove webhook</button>
-        </div>)}
-        <button onClick={() => setDraftStores(updateStore(draftStores, index, { webhooks: [...(store.webhooks ?? []), { id: `webhook-${(store.webhooks ?? []).length + 1}`, url: "", enabled: true, events: ["*"] }] }))}>Add webhook</button>
+        {(store.webhooks ?? []).map((hook, hookIndex) => <div className="webhook-editor" key={`${hook.id}-${hookIndex}`}><div className="store-editor-grid"><Field label="Webhook ID" value={hook.id} onChange={(value) => setDraftStores(updateWebhook(draftStores, index, hookIndex, { id: value }))} /><Field label="URL" value={hook.url} onChange={(value) => setDraftStores(updateWebhook(draftStores, index, hookIndex, { url: value }))} /><Field label="Events" value={(hook.events ?? ["*"]).join(",")} onChange={(value) => setDraftStores(updateWebhook(draftStores, index, hookIndex, { events: parseWebhookEvents(value) }))} /></div><label className="check-row"><input type="checkbox" checked={hook.enabled !== false} onChange={(event) => setDraftStores(updateWebhook(draftStores, index, hookIndex, { enabled: event.currentTarget.checked }))} /> webhook enabled</label><button className="danger" onClick={() => setDraftStores(draftStores.map((s, i) => i === index ? { ...s, webhooks: (s.webhooks ?? []).filter((_, h) => h !== hookIndex) } : s))}>Remove webhook</button></div>)}
+        <button onClick={() => setDraftStores(updateStore(draftStores, index, { webhooks: [...(store.webhooks ?? []), { id: "", url: "", enabled: true, events: ["*"] }] }))}>Add webhook</button>
       </div>)}</div>
     </Section>}
 
-    {tab === "secrets" && <Section title="Secrets" description="Set individual token secrets or the arbitrary-store JSON token map used by scheduled syncs.">
-      <div className="grid three"><Field label="Secret name" value={secretName} onChange={setSecretName} placeholder="ECWID_99490018_TOKEN" /><Field label="Secret value" value={secretValue} onChange={setSecretValue} type="password" /><button onClick={() => saveSecret()} disabled={busy}>Save secret</button></div>
-      <TextField label="ECWID_STORE_TOKENS_JSON" value={tokensJson} onChange={setTokensJson} help='For stores added from the UI: {"99490018":"public_...","other":"secret_..."}' />
-      <button onClick={saveTokensJsonSecret} disabled={busy}>Save JSON token map secret</button>
-      <table><thead><tr><th>Name</th><th>Created</th><th>Updated</th><th></th></tr></thead><tbody>{secrets.map((secret) => <tr key={secret.name}><td><code>{secret.name}</code></td><td>{secret.created_at}</td><td>{secret.updated_at}</td><td><button className="danger" onClick={() => removeSecret(secret.name)}>Delete</button></td></tr>)}</tbody></table>
+    {tab === "secrets" && <Section title="Secrets" description="Create or rotate repository secrets used by GitHub Actions." right={<button onClick={() => saveSecret()} disabled={busy || !secretName || !secretValue}>Save secret</button>}>
+      <div className="grid three"><Field label="Secret name" value={secretName} onChange={setSecretName} placeholder="ECWID_99490018_TOKEN" /><Field label="Secret value" value={secretValue} onChange={setSecretValue} type="password" /><TextField label="Token JSON" value={tokensJson} onChange={setTokensJson} help="Optional ECWID_STORE_TOKENS_JSON fallback." /></div><button onClick={() => saveSecret("ECWID_STORE_TOKENS_JSON", tokensJson)}>Save token JSON secret</button>
+      <table><thead><tr><th>Name</th><th>Updated</th><th></th></tr></thead><tbody>{secrets.map((secret) => <tr key={secret.name}><td><code>{secret.name}</code></td><td>{secret.updated_at ?? "—"}</td><td><button className="danger" onClick={() => removeSecret(secret.name)}>Delete</button></td></tr>)}</tbody></table>
     </Section>}
 
-    {tab === "sync" && <Section title="On-demand sync" description="Runs entirely in this browser: fetches Ecwid products with the token you provide, commits product files, event streams, and resolved state snapshots directly through the GitHub Git API.">
-      <div className="toolbar"><select value={selectedStore?.id ?? ""} onChange={(event) => setSelectedStoreId(event.currentTarget.value)}>{config?.stores.map((store) => <option key={store.id} value={store.id}>{store.name ?? store.id}</option>)}</select><Field label="Ecwid API token for browser sync" value={selectedStore ? manualTokens[selectedStore.id] ?? "" : ""} onChange={(value) => selectedStore && setManualTokens({ ...manualTokens, [selectedStore.id]: value })} type="password" help="Not stored unless you save it as a GitHub secret." /><button className="primary" disabled={!selectedStore || busy} onClick={() => selectedStore && syncStoreInBrowser(selectedStore)}>Sync selected in browser</button></div>
-      <div className="button-row"><Field label="Optional max products for test sync" value={syncMaxProducts} onChange={setSyncMaxProducts} type="number" /><button disabled={!selectedStore || busy} onClick={() => selectedStore && saveSecret(selectedStore.tokenEnv ?? normalizeSecretName(selectedStore.id), manualTokens[selectedStore.id] ?? "")}>Save token as store secret</button><button disabled={!selectedStore || busy} onClick={() => selectedStore && dispatchStoreSync(selectedStore.id, true)}>Fallback: dispatch Actions sync</button></div>
+    {tab === "sync" && <Section title="Sync" description="Prefer GitHub Actions for full syncs. Browser sync remains useful for one-off manual syncs.">
+      <div className="toolbar"><select value={selectedStore?.id ?? ""} onChange={(event) => setSelectedStoreId(event.currentTarget.value)}>{config?.stores.map((store) => <option key={store.id} value={store.id}>{store.name ?? store.id}</option>)}</select><span className="pill">branch: <code>{selectedBranch || "—"}</code></span><span className="pill">products: {selectedProductIndex?.productCount ?? "—"}</span></div>
+      <div className="grid three"><Field label="Ecwid token for browser sync" type="password" value={selectedStore ? manualTokens[selectedStore.id] ?? "" : ""} onChange={(value) => selectedStore && setManualTokens({ ...manualTokens, [selectedStore.id]: value })} /><Field label="Max products" value={syncMaxProducts} onChange={setSyncMaxProducts} placeholder="optional" /><div className="button-row"><button className="primary" disabled={!selectedStore || busy} onClick={() => selectedStore && syncStoreInBrowser(selectedStore)}>Run browser sync</button><button disabled={!selectedStore || busy} onClick={() => selectedStore && dispatchStoreSync(selectedStore.id, true)}>Dispatch Actions sync</button></div></div>
       {selectedStore ? <JsonBlock value={{ store: selectedStore, branch: selectedBranch, manifest: manifests[selectedStore.id], productIndex: productIndexes[selectedStore.id] ? { productCount: productIndexes[selectedStore.id]?.productCount, shards: productIndexes[selectedStore.id]?.shards.length } : null, eventIndex: eventIndexes[selectedStore.id] }} /> : null}
     </Section>}
 
-    {tab === "mutations" && <Section title="Product edits" description="Create one reviewable product mutation JSON file. A GitHub workflow validates that file, then expands it into product files, state indexes, and event streams on the store branch.">
+    {tab === "mutations" && <Section title="Product edits" description="Create one product mutation JSON file. GitHub Actions expands it into product files, state indexes, and event streams on the store branch.">
       <div className="toolbar"><select value={selectedStore?.id ?? ""} onChange={(event) => setSelectedStoreId(event.currentTarget.value)}>{config?.stores.map((store) => <option key={store.id} value={store.id}>{store.name ?? store.id}</option>)}</select><span className="pill">branch: <code>{selectedBranch || "—"}</code></span><span className="pill">base: <code>{selectedProductIndex?.productsHash?.slice(0, 12) ?? manifests[selectedStore?.id ?? ""]?.productsHash?.slice(0, 12) ?? "—"}</code></span></div>
-      <div className="grid three">
-        <label className="field"><span>Operation</span><select value={mutationOp} onChange={(event) => setMutationOp(event.currentTarget.value as "upsert" | "delete")}><option value="upsert">add/update product</option><option value="delete">delete product</option></select></label>
-        <Field label="Product ID" value={mutationProductId} onChange={setMutationProductId} help="Required for delete; auto-derived from product JSON for upsert." />
-        <label className="check-row"><input type="checkbox" checked={mutationAllowOutdatedBase} onChange={(event) => setMutationAllowOutdatedBase(event.currentTarget.checked)} /> allow outdated base hash</label>
-      </div>
-      {mutationOp === "upsert" ? <TextField label="Product JSON" value={mutationJson} onChange={setMutationJson} help="Full Ecwid product snapshot. The workflow writes this to products/&lt;id&gt;.json and rebuilds state indexes." /> : <JsonBlock value={{ deleteProductId: mutationProductId || "<product id>", expectHash: selectedMutationRecord(mutationProductId)?.hash ?? "not found in loaded index" }} />}
+      <div className="grid three"><label className="field"><span>Operation</span><select value={mutationOp} onChange={(event) => setMutationOp(event.currentTarget.value as "upsert" | "delete")}><option value="upsert">add/update product</option><option value="delete">delete product</option></select></label><Field label="Product ID" value={mutationProductId} onChange={setMutationProductId} /><label className="check-row"><input type="checkbox" checked={mutationAllowOutdatedBase} onChange={(event) => setMutationAllowOutdatedBase(event.currentTarget.checked)} /> allow outdated base hash</label></div>
+      {mutationOp === "upsert" ? <TextField label="Product JSON" value={mutationJson} onChange={setMutationJson} rows={12} /> : <JsonBlock value={{ deleteProductId: mutationProductId || "<product id>", expectHash: selectedMutationRecord(mutationProductId)?.hash ?? "not found in loaded index" }} />}
       <TextField label="Note" value={mutationNote} onChange={setMutationNote} help="Optional context stored in the single mutation request file." />
       <div className="button-row"><button className="primary" disabled={!selectedStore || busy} onClick={() => submitProductMutation("dispatch")}>Commit request + run workflow</button><button disabled={!selectedStore || busy} onClick={() => submitProductMutation("pr")}>Open review PR</button></div>
-      <JsonBlock value={{ requestFile: selectedStore ? `product-mutations/${safePathSegment(selectedStore.id)}/<request-id>.json` : null, workflow: PRODUCT_MUTATION_WORKFLOW_ID, behavior: "The browser commits one JSON file. GitHub Actions applies it to the store branch and regenerates products/, events/, and state/." }} />
-    </Section>}
-
-    {tab === "products" && <Section title="Products" description="Browse resolved state snapshots instead of walking tens of thousands of product files.">
-      <div className="toolbar"><select value={selectedStore?.id ?? ""} onChange={(event) => setSelectedStoreId(event.currentTarget.value)}>{config?.stores.map((store) => <option key={store.id} value={store.id}>{store.name ?? store.id}</option>)}</select><Field label="Search" value={productSearch} onChange={setProductSearch} placeholder="name, sku, id, category" /><span className="pill">{filteredProductRecords.length} / {selectedProductIndex?.productCount ?? 0}</span></div>
-      <table><thead><tr><th>ID</th><th>Name</th><th>SKU</th><th>Price</th><th>Stock</th><th>Shard</th><th></th></tr></thead><tbody>{filteredProductRecords.slice(0, 500).map((record) => <tr key={record.productId}><td><code>{record.productId}</code></td><td>{record.summary.name ?? "—"}</td><td>{record.summary.sku ?? "—"}</td><td>{record.summary.price ?? record.summary.defaultDisplayedPrice ?? "—"}</td><td>{record.summary.inStock === false ? "out" : record.summary.quantity ?? "—"}</td><td><code>{record.shardPath}</code></td><td><div className="button-row"><button onClick={() => selectedStore && loadProductFile(selectedStore.id, record.path)}>View JSON</button><button onClick={() => prepareProductEdit(record)}>Edit</button><button className="danger" onClick={() => prepareProductDelete(record)}>Delete</button></div></td></tr>)}</tbody></table>
-      {selectedJson ? <JsonBlock value={selectedJson} /> : null}
+      <JsonBlock value={{ requestFile: selectedStore ? `product-mutations/${safePathSegment(selectedStore.id)}/<request-id>.json` : null, workflow: PRODUCT_MUTATION_WORKFLOW_ID }} />
     </Section>}
 
     {tab === "events" && <Section title="Events" description="Browse event streams through persisted event indexes.">
@@ -504,9 +737,7 @@ export function App() {
       <div className="cards"><div className="card"><b>{products.length}</b><span>loaded products</span></div><div className="card"><b>{clusters.length}</b><span>clusters</span></div><div className="card"><b>{clusters.filter((c) => c.storeIds.length > 1).length}</b><span>multi-store clusters</span></div><div className="card"><b>{deals.length}</b><span>deal candidates</span></div></div>
       <h3>Store price index</h3><table><thead><tr><th>Store</th><th>Compared products</th><th>Median relative</th><th>Average relative</th><th>Min</th><th>Max</th></tr></thead><tbody>{prices.map((row) => <tr key={row.storeId}><td>{row.storeId}</td><td>{row.comparedProducts}</td><td>{row.medianRelativePrice.toFixed(3)}</td><td>{row.averageRelativePrice.toFixed(3)}</td><td>{row.minRelativePrice.toFixed(3)}</td><td>{row.maxRelativePrice.toFixed(3)}</td></tr>)}</tbody></table>
       <h3>Likely favorable offers</h3><table><thead><tr><th>Store</th><th>Product</th><th>Price</th><th>Cluster median</th><th>Relative</th><th>Cluster size</th></tr></thead><tbody>{deals.slice(0, 200).map((deal) => <tr key={`${deal.storeId}:${deal.productId}`}><td>{deal.storeId}</td><td>{deal.url ? <a href={deal.url} target="_blank" rel="noreferrer">{deal.name}</a> : deal.name}<br/><code>{deal.productId}</code></td><td>{deal.price}</td><td>{deal.clusterMedianPrice.toFixed(2)}</td><td>{deal.relativePrice.toFixed(3)}</td><td>{deal.clusterSize}</td></tr>)}</tbody></table>
-      <h3>Clusters</h3><table><thead><tr><th>Cluster</th><th>Products</th><th>Stores</th><th>Median</th><th>Min</th><th>Max</th></tr></thead><tbody>{clusters.slice(0, 300).map((cluster) => <tr key={cluster.id}><td>{cluster.label}</td><td>{cluster.products.length}</td><td>{cluster.storeIds.join(", ")}</td><td>{cluster.medianPrice?.toFixed(2) ?? "—"}</td><td>{cluster.minPrice ?? "—"}</td><td>{cluster.maxPrice ?? "—"}</td></tr>)}</tbody></table>
-      {analysisSnapshot ? <JsonBlock value={{ persisted: true, generatedAt: analysisSnapshot.generatedAt, productCount: analysisSnapshot.productCount, clusterCount: analysisSnapshot.clusterCount }} /> : null}
-      <h3>Loaded product preview</h3><table><thead><tr><th>Store</th><th>Product</th><th>Price</th><th>Path</th></tr></thead><tbody>{products.slice(0, 100).map((item) => <tr key={`${item.storeId}:${item.path}`}><td>{item.storeId}</td><td>{productName(item.product)}</td><td>{productPrice(item.product) ?? "—"}</td><td><code>{item.path}</code></td></tr>)}</tbody></table>
+      <h3>Loaded product preview</h3><table><thead><tr><th>Store</th><th>Product</th><th>Price</th><th>Path</th></tr></thead><tbody>{products.slice(0, 100).map((item) => <tr key={`${item.storeId}:${item.path}`}><td>{item.storeId}</td><td>{loadedProductName(item.product)}</td><td>{loadedProductPrice(item.product) ?? "—"}</td><td><code>{item.path}</code></td></tr>)}</tbody></table>{analysisSnapshot ? <JsonBlock value={{ persisted: true, generatedAt: analysisSnapshot.generatedAt, productCount: analysisSnapshot.productCount, clusterCount: analysisSnapshot.clusterCount }} /> : null}
     </Section>}
 
     {tab === "files" && <Section title="Files" description="Raw file trees for debugging; product/event browsing should use resolved state indexes.">
@@ -516,3 +747,4 @@ export function App() {
     </Section>}
   </>;
 }
+

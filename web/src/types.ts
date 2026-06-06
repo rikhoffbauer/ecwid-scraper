@@ -83,7 +83,13 @@ export interface ProductSummary {
   inStock?: boolean;
   url?: string;
   thumbnailUrl?: string;
+  imageUrl?: string;
+  smallThumbnailUrl?: string;
+  hdThumbnailUrl?: string;
   categoryIds?: Array<string | number>;
+  attributeCount?: number;
+  optionCount?: number;
+  imageCount?: number;
   categoryNames?: string[];
 }
 

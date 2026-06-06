@@ -68,6 +68,12 @@ export function summarizeProduct(product: JsonObject): ProductSummary {
     ...(booleanField(product, "inStock") !== undefined ? { inStock: booleanField(product, "inStock") } : {}),
     ...(stringField(product, "url") ? { url: stringField(product, "url") } : {}),
     ...(stringField(product, "thumbnailUrl") ? { thumbnailUrl: stringField(product, "thumbnailUrl") } : {}),
+    ...(stringField(product, "imageUrl") ? { imageUrl: stringField(product, "imageUrl") } : {}),
+    ...(stringField(product, "smallThumbnailUrl") ? { smallThumbnailUrl: stringField(product, "smallThumbnailUrl") } : {}),
+    ...(stringField(product, "hdThumbnailUrl") ? { hdThumbnailUrl: stringField(product, "hdThumbnailUrl") } : {}),
+    ...(Array.isArray(product.attributes) ? { attributeCount: product.attributes.length } : {}),
+    ...(Array.isArray(product.options) ? { optionCount: product.options.length } : {}),
+    ...(Array.isArray(product.galleryImages) ? { imageCount: product.galleryImages.length } : {}),
     ...categorySummary(product)
   };
 }

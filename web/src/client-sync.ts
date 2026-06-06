@@ -50,6 +50,12 @@ function summary(product: Record<string, unknown>): ProductSummary {
   if (typeof product.inStock === "boolean") out.inStock = product.inStock;
   if (typeof product.url === "string") out.url = product.url;
   if (typeof product.thumbnailUrl === "string") out.thumbnailUrl = product.thumbnailUrl;
+  if (typeof product.imageUrl === "string") out.imageUrl = product.imageUrl;
+  if (typeof product.smallThumbnailUrl === "string") out.smallThumbnailUrl = product.smallThumbnailUrl;
+  if (typeof product.hdThumbnailUrl === "string") out.hdThumbnailUrl = product.hdThumbnailUrl;
+  if (Array.isArray(product.attributes)) out.attributeCount = product.attributes.length;
+  if (Array.isArray(product.options)) out.optionCount = product.options.length;
+  if (Array.isArray(product.galleryImages)) out.imageCount = product.galleryImages.length;
   const categories = product.categories;
   if (Array.isArray(categories)) {
     const categoryNames: string[] = [];

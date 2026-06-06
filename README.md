@@ -6,7 +6,7 @@ Mirror one or more Ecwid stores into git and use the repository itself as a prod
 - Every Ecwid store gets its own orphan branch: `stores/ecwid/<storeId>`.
 - Each store branch contains current per-product JSON files, append-only JSONL product events, and resolved state snapshots/indexes. Large event/state JSONL outputs are sharded below GitHub blob limits.
 - Store sync intervals are configured per store.
-- The web UI can add stores, manage secrets, configure webhooks, run browser-side on-demand syncs, browse products/events, and run cross-store analysis.
+- The web UI can add stores, manage secrets, configure webhooks, run browser-side on-demand syncs, browse products/events as a webshop-like catalogue, save local favorites/lists, run advanced product queries, and run cross-store analysis.
 
 ## Setup
 
@@ -103,7 +103,9 @@ The `state/` files are the scalable read path. Consumers should use the indexes 
 
 ## Web UI
 
-The UI is deployed by `.github/workflows/deploy-pages.yml`. It uses `@octokit/rest` in the browser and asks the user for a GitHub token before making changes. The token is kept in memory by default; optional session persistence uses `sessionStorage`.
+The UI is deployed by `.github/workflows/deploy-pages.yml`. It uses `@octokit/rest` in the browser and asks the user for a GitHub token before making changes. The token is stored in `localStorage` to survive page reloads and can be removed with **Clear token**.
+
+The default **Browse** tab presents indexed products as a catalogue with grid, list, and selectable-column table views. It hides disabled or attribute-less products by default, supports multi-store browsing, image cards, original webshop links, product detail/history views, likely same-product matches across stores, IndexedDB favorites/lists, and an expression query language with boolean, arithmetic, comparison, pattern, grouping, and regex operators. See `docs/WEB_UI.md`.
 
 ## Analysis
 

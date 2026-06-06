@@ -4,32 +4,71 @@ The UI is deployed from `web/dist` by `.github/workflows/deploy-pages.yml`.
 
 Required token capabilities for full administration:
 
-- repository contents write access: edit `config/ecwid-stores.json` and persist analysis snapshots
+- repository contents write access: edit `config/ecwid-stores.json`, commit product mutation requests, and persist analysis snapshots
 - repository secrets write access: create/update/delete Ecwid and webhook secrets
-- Actions write access: optional fallback dispatch of `sync-ecwid.yml`
+- Actions write access: optional dispatch of `sync-ecwid.yml` and `product-mutations.yml`
 
-The token is kept in memory by default. If `keep token in this browser session` is enabled, it is stored in `sessionStorage`, not `localStorage`.
+The GitHub token is stored in `localStorage` under `ecwid-ui.token` so catalogue browsing survives page reloads. Use **Clear token** on shared machines.
 
-## Features
+## Product browsing
 
-- Add entirely new stores.
-- Edit per-store sync intervals.
-- Enable/disable stores.
-- Configure webhooks per store.
-- Create/update/delete repository secrets.
-- Save `ECWID_STORE_TOKENS_JSON` for dynamically added stores.
-- Run an on-demand browser-side sync for one store without GitHub Actions.
-- Add/update/delete products by committing one mutation request file and letting GitHub Actions expand it into generated store files.
-- Browse product snapshots through `state/products.index.json` instead of walking huge directories.
-- Browse JSONL event streams through `state/events.index.json`.
-- Load products across stores and cluster similar products for price/index/deal analysis.
-- Persist cross-store analysis snapshots to `analysis/cross-store/`.
+The default view is the catalogue browser. It reads each store branch's `state/products.index.json` and uses product summaries for fast multi-store browsing without walking `products/*.json`.
+
+Features:
+
+- grid, list, and selectable-column table views
+- product images from Ecwid thumbnail/image summary fields
+- default hiding for disabled or attribute-less records such as `{ "id": 693688849, "enabled": false }`
+- multi-store browsing with store toggles
+- details panel with raw product JSON, original webshop link, and likely same-product matches in other stores
+- on-demand product history loading from `state/events.index.json` and JSONL event files
+- favorites and arbitrary local product lists stored in IndexedDB
+- table sorting and column selection
+
+## Query language
+
+Plain text searches use full-text matching across store id/name, product id, name, SKU, categories, URL, hash, and price.
+
+If the query contains operators, expression mode is used. Supported operators:
+
+- boolean: `&&`, `||`, `!`
+- grouping: `(`, `)`
+- arithmetic: `+`, `-`, `*`, `/`, `%`, `^`
+- relational: `==`, `!=`, `>`, `>=`, `<`, `<=`
+- pattern matching: `^=`, `$=`, `*=`, `~=`, `|=`
+- regular expression literals: `/pattern/i`
+
+Common fields:
+
+- `storeId`, `store`, `storeName`
+- `id`, `productId`, `name`, `title`, `sku`
+- `price`, `quantity`, `inStock`, `enabled`
+- `category`, `categories`
+- `url`, `thumbnailUrl`, `hash`, `path`, `shardPath`
+- nested paths such as `summary.categoryNames`
+
+Examples:
+
+```txt
+hoodie cotton
+price >= 20 && price < 80
+storeId == "99490018" && (name *= hoodie || sku ^= HOOD)
+!enabled || inStock == false
+name ~= /cotton|linen/i && category |= Apparel
+(price * 1.21) <= 50
+```
+
+For pattern operators, an unquoted right-hand identifier is treated as a literal if no field with that name exists, so `name *= hoodie` works like `name *= "hoodie"`.
+
+## Product edits
+
+Manual product add/update/delete operations use the GitOps request-file path. The browser creates one JSON request file at `product-mutations/<storeId>/<requestId>.json` on a short-lived branch. The user can either dispatch `.github/workflows/product-mutations.yml` immediately or open a PR for review. The workflow validates the request, applies it to `stores/ecwid/<storeId>`, and regenerates product files, event streams, and state indexes.
 
 ## Browser-side sync
 
 The browser-side sync path asks for the Ecwid token because GitHub does not allow repository secrets to be read back as plaintext. The UI then:
 
-1. Fetches all Ecwid products from the browser.
+1. Fetches Ecwid products from the browser.
 2. Loads the previous resolved state from `state/products/*.jsonl`.
 3. Computes creates, deletes, and atomic field changes.
 4. Writes changed product JSON files and event JSONL files.
