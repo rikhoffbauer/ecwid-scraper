@@ -15,7 +15,12 @@ export interface RunGitResult {
 export function runGit(args: string[], options: RunGitOptions = {}): RunGitResult {
   const result = spawnSync("git", args, {
     cwd: options.cwd,
-    encoding: "utf8"
+    encoding: "utf8",
+    // Git can easily print multiple megabytes of output for root commits that
+    // create tens of thousands of product snapshot files. Node's default
+    // spawnSync maxBuffer is too small for that and reports the command as
+    // failed even when Git already created the commit successfully.
+    maxBuffer: 64 * 1024 * 1024
   });
 
   const status = result.status ?? 1;
@@ -23,7 +28,8 @@ export function runGit(args: string[], options: RunGitOptions = {}): RunGitResul
   const stderr = result.stderr ?? "";
 
   if (status !== 0 && !options.allowFailure) {
-    throw new Error(`git ${args.join(" ")} failed with status ${status}\n${stdout}${stderr}`);
+    const lowLevelError = result.error ? `\n${result.error.name}: ${result.error.message}` : "";
+    throw new Error(`git ${args.join(" ")} failed with status ${status}${lowLevelError}\n${stdout}${stderr}`);
   }
 
   if (!options.quiet && stdout.trim()) process.stdout.write(stdout);

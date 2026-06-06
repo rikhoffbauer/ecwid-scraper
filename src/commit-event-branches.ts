@@ -149,7 +149,7 @@ async function commitStoreEvents(params: {
     return false;
   }
 
-  runGit(["commit", "-m", `events(ecwid:${storeId}): append product events`], { cwd: worktreeDir });
+  runGit(["commit", "--quiet", "-m", `events(ecwid:${storeId}): append product events`], { cwd: worktreeDir });
   if (!noPush) runGit(["push", "origin", `HEAD:${branch}`], { cwd: worktreeDir });
 
   await rm(worktreeDir, { recursive: true, force: true });

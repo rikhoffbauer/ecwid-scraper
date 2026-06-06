@@ -2,17 +2,18 @@ import { useMemo, useState } from "react";
 import type { Octokit } from "@octokit/rest";
 import { buildAnalysisSnapshot, clusterProducts, dealCandidates, priceIndex, productName, productPrice } from "./analysis";
 import { browserSyncStore, loadStoreStateProducts } from "./client-sync";
-import { deleteRepoSecret, dispatchWorkflow, getAuthenticatedUser, getTreeFilesByPath, listBranches, listFiles, listRepoSecrets, loadConfig, makeOctokit, parseRepository, readBlobText, readBlobTextByPath, readTextFile, setRepoSecret, writeJsonFile } from "./github";
+import { createBranchFrom, createPullRequest, deleteRepoSecret, dispatchWorkflow, getAuthenticatedUser, getTreeFilesByPath, listBranches, listFiles, listRepoSecrets, loadConfig, makeOctokit, parseRepository, readBlobText, readBlobTextByPath, readTextFile, setRepoSecret, writeJsonFile } from "./github";
 import { parseJsonObject, safeJsonPreview, safePathSegment, stableStringify } from "./json";
-import type { AnalysisSnapshot, AppConfig, LoadedProduct, ProductEvent, ProductStateIndex, RepoSecretSummary, RepoTarget, StoreConfig, StoreEventIndex, StoreManifest, StoreWebhookConfig, TreeFile } from "./types";
+import type { AnalysisSnapshot, AppConfig, LoadedProduct, ProductEvent, ProductMutationBatch, ProductStateIndex, RepoSecretSummary, RepoTarget, StoreConfig, StoreEventIndex, StoreManifest, StoreWebhookConfig, TreeFile } from "./types";
 
-type TabId = "overview" | "stores" | "secrets" | "sync" | "products" | "events" | "analysis" | "files";
+type TabId = "overview" | "stores" | "secrets" | "sync" | "mutations" | "products" | "events" | "analysis" | "files";
 type Notice = { kind: "info" | "success" | "error"; text: string } | null;
 
 const DEFAULT_REPOSITORY = "rikhoffbauer/ecwid-scraper";
 const DEFAULT_BRANCH = "main";
 const CONFIG_PATH = "config/ecwid-stores.json";
 const SYNC_WORKFLOW_ID = "sync-ecwid.yml";
+const PRODUCT_MUTATION_WORKFLOW_ID = "product-mutations.yml";
 const EVENT_TYPES = ["product.created", "product.deleted", "product.field_changed"] as const;
 
 function normalizeSecretName(storeId: string): string {
@@ -41,7 +42,7 @@ function eventCounts(events: ProductEvent[]): Record<string, number> {
 }
 
 function emptyStore(): StoreConfig {
-  return { id: "", name: "", enabled: true, tokenEnv: "", limit: 100, requestDelayMs: 100, syncIntervalMinutes: 30, webhooks: [] };
+  return { id: "", name: "", url: "", enabled: true, tokenEnv: "", limit: 200, requestDelayMs: 100, syncIntervalMinutes: 30, webhooks: [] };
 }
 
 function updateStore(stores: StoreConfig[], index: number, patch: Partial<StoreConfig>): StoreConfig[] {
@@ -88,10 +89,11 @@ function cleanStore(store: StoreConfig, config: AppConfig): StoreConfig {
   const cleaned: StoreConfig = {
     id,
     name: store.name?.trim() || undefined,
+    url: store.url?.trim() || undefined,
     enabled: store.enabled !== false,
     tokenEnv: store.tokenEnv?.trim() || normalizeSecretName(id),
     apiBaseUrl: store.apiBaseUrl?.trim() || undefined,
-    limit: Math.max(1, Math.min(100, Number(store.limit ?? 100))),
+    limit: Math.max(1, Math.min(200, Number(store.limit ?? 200))),
     requestDelayMs: Math.max(0, Number(store.requestDelayMs ?? 100)),
     syncIntervalMinutes: Math.max(1, Number(store.syncIntervalMinutes ?? config.defaultSyncIntervalMinutes ?? 30)),
     extraQuery: store.extraQuery,
@@ -149,6 +151,11 @@ export function App() {
   const [productSearch, setProductSearch] = useState("");
   const [syncMaxProducts, setSyncMaxProducts] = useState("");
   const [analysisSnapshot, setAnalysisSnapshot] = useState<AnalysisSnapshot | null>(null);
+  const [mutationOp, setMutationOp] = useState<"upsert" | "delete">("upsert");
+  const [mutationProductId, setMutationProductId] = useState("");
+  const [mutationJson, setMutationJson] = useState("{\n  \"id\": \"new-product-id\",\n  \"name\": \"New product\",\n  \"price\": 0\n}");
+  const [mutationNote, setMutationNote] = useState("");
+  const [mutationAllowOutdatedBase, setMutationAllowOutdatedBase] = useState(false);
 
   const target = useMemo<RepoTarget | null>(() => {
     try { return { ...parseRepository(repository), branch: branch.trim() || DEFAULT_BRANCH }; }
@@ -170,7 +177,7 @@ export function App() {
   const clusters = useMemo(() => clusterProducts(products, Number(clusterThreshold) || 0.55), [products, clusterThreshold]);
   const prices = useMemo(() => priceIndex(clusters), [clusters]);
   const deals = useMemo(() => dealCandidates(clusters, Number(dealThreshold) || 0.75), [clusters, dealThreshold]);
-  const tabs: Array<[TabId, string]> = [["overview", "Overview"], ["stores", "Stores"], ["secrets", "Secrets"], ["sync", "Sync"], ["products", "Products"], ["events", "Events"], ["analysis", "Analysis"], ["files", "Files"]];
+  const tabs: Array<[TabId, string]> = [["overview", "Overview"], ["stores", "Stores"], ["secrets", "Secrets"], ["sync", "Sync"], ["mutations", "Product edits"], ["products", "Products"], ["events", "Events"], ["analysis", "Analysis"], ["files", "Files"]];
 
   function persistToken(nextKeep: boolean, nextToken = token) {
     setKeepToken(nextKeep);
@@ -185,7 +192,7 @@ export function App() {
     setBusy(true); setNotice({ kind: "info", text: label });
     try {
       const result = await task();
-      setNotice({ kind: "success", text: `${label}: done.` });
+      setNotice({ kind: "success", text: typeof result === "string" ? result : `${label}: done.` });
       return result;
     } catch (error) {
       setNotice({ kind: "error", text: `${label}: ${(error as Error).message}` });
@@ -297,6 +304,99 @@ export function App() {
     });
   }
 
+  async function prepareProductEdit(record: ProductStateIndex["records"][number]) {
+    await run("Preparing product edit", async () => {
+      if (!octokit || !target || !config || !selectedStore) return;
+      const text = await readBlobTextByPath(octokit, target, record.path, storeBranch(config, selectedStore.id));
+      setMutationOp("upsert");
+      setMutationProductId(record.productId);
+      setMutationJson(JSON.stringify(JSON.parse(text), null, 2));
+      setTab("mutations");
+    });
+  }
+
+  function prepareProductDelete(record: ProductStateIndex["records"][number]) {
+    setMutationOp("delete");
+    setMutationProductId(record.productId);
+    setMutationJson("{}");
+    setTab("mutations");
+  }
+
+  function selectedMutationRecord(productId: string) {
+    return selectedProductIndex?.records.find((record) => record.productId === productId);
+  }
+
+  function buildProductMutationRequest(store: StoreConfig): ProductMutationBatch {
+    const requestedAt = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+    const stamp = requestedAt.replaceAll(/[-:]/g, "").replace("T", "-").replace("Z", "Z");
+    const requestId = `${safePathSegment(store.id)}-${stamp}-${mutationOp}`;
+    const baseProductsHash = selectedProductIndex?.productsHash ?? manifests[store.id]?.productsHash;
+    if (mutationOp === "delete") {
+      const productId = mutationProductId.trim();
+      if (!productId) throw new Error("Product ID is required for delete.");
+      const record = selectedMutationRecord(productId);
+      return {
+        schemaVersion: 1,
+        kind: "ecwid-product-mutation-batch",
+        source: "web-ui",
+        requestId,
+        storeId: store.id,
+        requestedAt,
+        requestedBy: authUser || undefined,
+        baseProductsHash,
+        allowOutdatedBase: mutationAllowOutdatedBase,
+        note: mutationNote.trim() || undefined,
+        operations: [{ op: "delete", productId, expectHash: record?.hash }]
+      };
+    }
+
+    const product = parseJsonObject<Record<string, unknown>>(mutationJson, "product JSON");
+    if (product === null || typeof product !== "object" || Array.isArray(product)) throw new Error("Product JSON must be an object.");
+    const rawId = product.id;
+    if (typeof rawId !== "string" && typeof rawId !== "number") throw new Error("Product JSON must contain string/number id.");
+    const productId = String(rawId);
+    const record = selectedMutationRecord(productId);
+    return {
+      schemaVersion: 1,
+      kind: "ecwid-product-mutation-batch",
+      source: "web-ui",
+      requestId,
+      storeId: store.id,
+      requestedAt,
+      requestedBy: authUser || undefined,
+      baseProductsHash,
+      allowOutdatedBase: mutationAllowOutdatedBase,
+      note: mutationNote.trim() || undefined,
+      operations: [{ op: "upsert", productId, product, expectHash: record?.hash }]
+    };
+  }
+
+  async function submitProductMutation(mode: "dispatch" | "pr") {
+    await run(mode === "pr" ? "Opening product mutation PR" : "Dispatching product mutation workflow", async () => {
+      if (!octokit || !target || !selectedStore) return;
+      const request = buildProductMutationRequest(selectedStore);
+      const requestBranch = `product-mutations/${safePathSegment(request.storeId)}/${safePathSegment(request.requestId)}`;
+      const requestPath = `product-mutations/${safePathSegment(request.storeId)}/${safePathSegment(request.requestId)}.json`;
+      await createBranchFrom(octokit, target, requestBranch, target.branch);
+      await writeJsonFile(octokit, target, {
+        branch: requestBranch,
+        path: requestPath,
+        value: request,
+        message: `products(ecwid:${request.storeId}): request ${mutationOp} ${request.operations[0]?.productId ?? "product"}`
+      });
+      if (mode === "pr") {
+        const pr = await createPullRequest(octokit, target, {
+          head: requestBranch,
+          title: `products(ecwid:${request.storeId}): ${mutationOp} ${request.operations[0]?.productId ?? "product"}`,
+          body: `Product mutation request written to \`${requestPath}\`. Merge this PR to let the product-mutations workflow apply it to \`${storeBranch(config!, request.storeId)}\`.`
+        });
+        return `Opened PR #${pr.number}: ${pr.htmlUrl}`;
+      }
+      await dispatchWorkflow(octokit, target, PRODUCT_MUTATION_WORKFLOW_ID, { request_ref: requestBranch, request_path: requestPath, push: true }, target.branch);
+      return `Committed ${requestPath} on ${requestBranch} and dispatched ${PRODUCT_MUTATION_WORKFLOW_ID}.`;
+    });
+  }
+
   async function loadAllProductsFromState() {
     await run("Loading resolved state snapshots", async () => {
       if (!octokit || !target || !config) return;
@@ -333,7 +433,7 @@ export function App() {
 
     {tab === "overview" && <Section title="Overview" description="Current config, store branches, resolved state indexes, and latest sync metadata.">
       <div className="cards"><div className="card"><b>{config?.stores.length ?? 0}</b><span>configured stores</span></div><div className="card"><b>{storeBranches.length}</b><span>store branches</span></div><div className="card"><b>{Object.values(productIndexes).reduce((sum, index) => sum + (index?.productCount ?? 0), 0)}</b><span>indexed products</span></div><div className="card"><b>{Object.values(eventIndexes).reduce((sum, index) => sum + (index?.totalEvents ?? 0), 0)}</b><span>indexed events</span></div></div>
-      <table><thead><tr><th>Store</th><th>Branch</th><th>Interval</th><th>Products</th><th>Events</th><th>Last sync</th><th>Next due</th><th>Action</th></tr></thead><tbody>{config?.stores.map((store) => <tr key={store.id}><td>{store.name ?? store.id}<br/><span>{store.id}</span></td><td><code>{storeBranch(config, store.id)}</code></td><td>{store.syncIntervalMinutes ?? config.defaultSyncIntervalMinutes} min</td><td>{productIndexes[store.id]?.productCount ?? manifests[store.id]?.productCount ?? "—"}</td><td>{eventIndexes[store.id]?.totalEvents ?? "—"}</td><td>{manifests[store.id]?.lastSyncedAt ?? "—"}</td><td>{manifests[store.id]?.nextSyncNotBefore ?? "—"}</td><td><button onClick={() => { setSelectedStoreId(store.id); setTab("sync"); }}>Sync</button></td></tr>)}</tbody></table>
+      <table><thead><tr><th>Store</th><th>Branch</th><th>Interval</th><th>Products</th><th>Events</th><th>Last sync</th><th>Next due</th><th>Action</th></tr></thead><tbody>{config?.stores.map((store) => <tr key={store.id}><td>{store.url ? <a href={store.url} target={"_blank"}>{store.name ?? store.id}</a> : store.name ?? store.id}<br/><span>{store.id}</span></td><td><code>{storeBranch(config, store.id)}</code></td><td>{store.syncIntervalMinutes ?? config.defaultSyncIntervalMinutes} min</td><td>{productIndexes[store.id]?.productCount ?? manifests[store.id]?.productCount ?? "—"}</td><td>{eventIndexes[store.id]?.totalEvents ?? "—"}</td><td>{manifests[store.id]?.lastSyncedAt ?? "—"}</td><td>{manifests[store.id]?.nextSyncNotBefore ?? "—"}</td><td><button onClick={() => { setSelectedStoreId(store.id); setTab("sync"); }}>Sync</button></td></tr>)}</tbody></table>
     </Section>}
 
     {tab === "stores" && <Section title="Stores" description="Add stores, edit intervals, configure webhooks, then save config/ecwid-stores.json." right={<button className="primary" onClick={saveStores} disabled={busy || !config}>Save stores</button>}>
@@ -342,9 +442,10 @@ export function App() {
         <div className="store-editor-grid">
           <Field label="Store ID" value={store.id} onChange={(value) => setDraftStores(updateStore(draftStores, index, { id: value, tokenEnv: normalizeSecretName(value) }))} />
           <Field label="Name" value={store.name ?? ""} onChange={(value) => setDraftStores(updateStore(draftStores, index, { name: value }))} />
+          <Field label="URL" value={store.url ?? ""} onChange={(value) => setDraftStores(updateStore(draftStores, index, { url: value }))} />
           <Field label="Token env" value={store.tokenEnv ?? ""} onChange={(value) => setDraftStores(updateStore(draftStores, index, { tokenEnv: value }))} help="Used by Actions; browser sync asks for the token separately." />
           <Field label="Interval minutes" type="number" value={String(store.syncIntervalMinutes ?? 30)} onChange={(value) => setDraftStores(updateStore(draftStores, index, { syncIntervalMinutes: Number(value) }))} />
-          <Field label="Limit" type="number" value={String(store.limit ?? 100)} onChange={(value) => setDraftStores(updateStore(draftStores, index, { limit: Number(value) }))} />
+          <Field label="Limit" type="number" value={String(store.limit ?? 200)} onChange={(value) => setDraftStores(updateStore(draftStores, index, { limit: Number(value) }))} />
           <Field label="Request delay ms" type="number" value={String(store.requestDelayMs ?? 100)} onChange={(value) => setDraftStores(updateStore(draftStores, index, { requestDelayMs: Number(value) }))} />
         </div>
         <label className="check-row"><input type="checkbox" checked={store.enabled !== false} onChange={(event) => setDraftStores(updateStore(draftStores, index, { enabled: event.currentTarget.checked }))} /> enabled</label>
@@ -372,9 +473,22 @@ export function App() {
       {selectedStore ? <JsonBlock value={{ store: selectedStore, branch: selectedBranch, manifest: manifests[selectedStore.id], productIndex: productIndexes[selectedStore.id] ? { productCount: productIndexes[selectedStore.id]?.productCount, shards: productIndexes[selectedStore.id]?.shards.length } : null, eventIndex: eventIndexes[selectedStore.id] }} /> : null}
     </Section>}
 
+    {tab === "mutations" && <Section title="Product edits" description="Create one reviewable product mutation JSON file. A GitHub workflow validates that file, then expands it into product files, state indexes, and event streams on the store branch.">
+      <div className="toolbar"><select value={selectedStore?.id ?? ""} onChange={(event) => setSelectedStoreId(event.currentTarget.value)}>{config?.stores.map((store) => <option key={store.id} value={store.id}>{store.name ?? store.id}</option>)}</select><span className="pill">branch: <code>{selectedBranch || "—"}</code></span><span className="pill">base: <code>{selectedProductIndex?.productsHash?.slice(0, 12) ?? manifests[selectedStore?.id ?? ""]?.productsHash?.slice(0, 12) ?? "—"}</code></span></div>
+      <div className="grid three">
+        <label className="field"><span>Operation</span><select value={mutationOp} onChange={(event) => setMutationOp(event.currentTarget.value as "upsert" | "delete")}><option value="upsert">add/update product</option><option value="delete">delete product</option></select></label>
+        <Field label="Product ID" value={mutationProductId} onChange={setMutationProductId} help="Required for delete; auto-derived from product JSON for upsert." />
+        <label className="check-row"><input type="checkbox" checked={mutationAllowOutdatedBase} onChange={(event) => setMutationAllowOutdatedBase(event.currentTarget.checked)} /> allow outdated base hash</label>
+      </div>
+      {mutationOp === "upsert" ? <TextField label="Product JSON" value={mutationJson} onChange={setMutationJson} help="Full Ecwid product snapshot. The workflow writes this to products/&lt;id&gt;.json and rebuilds state indexes." /> : <JsonBlock value={{ deleteProductId: mutationProductId || "<product id>", expectHash: selectedMutationRecord(mutationProductId)?.hash ?? "not found in loaded index" }} />}
+      <TextField label="Note" value={mutationNote} onChange={setMutationNote} help="Optional context stored in the single mutation request file." />
+      <div className="button-row"><button className="primary" disabled={!selectedStore || busy} onClick={() => submitProductMutation("dispatch")}>Commit request + run workflow</button><button disabled={!selectedStore || busy} onClick={() => submitProductMutation("pr")}>Open review PR</button></div>
+      <JsonBlock value={{ requestFile: selectedStore ? `product-mutations/${safePathSegment(selectedStore.id)}/<request-id>.json` : null, workflow: PRODUCT_MUTATION_WORKFLOW_ID, behavior: "The browser commits one JSON file. GitHub Actions applies it to the store branch and regenerates products/, events/, and state/." }} />
+    </Section>}
+
     {tab === "products" && <Section title="Products" description="Browse resolved state snapshots instead of walking tens of thousands of product files.">
       <div className="toolbar"><select value={selectedStore?.id ?? ""} onChange={(event) => setSelectedStoreId(event.currentTarget.value)}>{config?.stores.map((store) => <option key={store.id} value={store.id}>{store.name ?? store.id}</option>)}</select><Field label="Search" value={productSearch} onChange={setProductSearch} placeholder="name, sku, id, category" /><span className="pill">{filteredProductRecords.length} / {selectedProductIndex?.productCount ?? 0}</span></div>
-      <table><thead><tr><th>ID</th><th>Name</th><th>SKU</th><th>Price</th><th>Stock</th><th>Shard</th><th></th></tr></thead><tbody>{filteredProductRecords.slice(0, 500).map((record) => <tr key={record.productId}><td><code>{record.productId}</code></td><td>{record.summary.name ?? "—"}</td><td>{record.summary.sku ?? "—"}</td><td>{record.summary.price ?? record.summary.defaultDisplayedPrice ?? "—"}</td><td>{record.summary.inStock === false ? "out" : record.summary.quantity ?? "—"}</td><td><code>{record.shardPath}</code></td><td><button onClick={() => selectedStore && loadProductFile(selectedStore.id, record.path)}>View JSON</button></td></tr>)}</tbody></table>
+      <table><thead><tr><th>ID</th><th>Name</th><th>SKU</th><th>Price</th><th>Stock</th><th>Shard</th><th></th></tr></thead><tbody>{filteredProductRecords.slice(0, 500).map((record) => <tr key={record.productId}><td><code>{record.productId}</code></td><td>{record.summary.name ?? "—"}</td><td>{record.summary.sku ?? "—"}</td><td>{record.summary.price ?? record.summary.defaultDisplayedPrice ?? "—"}</td><td>{record.summary.inStock === false ? "out" : record.summary.quantity ?? "—"}</td><td><code>{record.shardPath}</code></td><td><div className="button-row"><button onClick={() => selectedStore && loadProductFile(selectedStore.id, record.path)}>View JSON</button><button onClick={() => prepareProductEdit(record)}>Edit</button><button className="danger" onClick={() => prepareProductDelete(record)}>Delete</button></div></td></tr>)}</tbody></table>
       {selectedJson ? <JsonBlock value={selectedJson} /> : null}
     </Section>}
 

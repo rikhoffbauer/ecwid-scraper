@@ -260,7 +260,7 @@ async function syncInStoreBranch(config: AppConfig, store: StoreConfig, repoRoot
     const msg = events.length > 0
       ? `sync(ecwid:${store.id}): ${created} created, ${updated} updated, ${deleted} deleted`
       : `sync(ecwid:${store.id}): refresh metadata`;
-    runGit(["commit", "-m", msg], { cwd: worktreeDir });
+    runGit(["commit", "--quiet", "-m", msg], { cwd: worktreeDir });
     if (!args.noPush) runGit(["push", "origin", `HEAD:${branch}`], { cwd: worktreeDir });
   }
 

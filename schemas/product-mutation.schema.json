@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.com/schemas/product-mutation.schema.json",
+  "title": "Ecwid Product Mutation Batch",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "kind", "requestId", "storeId", "requestedAt", "operations"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "ecwid-product-mutation-batch" },
+    "source": { "type": "string", "default": "web-ui" },
+    "requestId": { "type": "string", "minLength": 1 },
+    "storeId": { "type": "string", "minLength": 1 },
+    "requestedAt": { "type": "string", "format": "date-time" },
+    "requestedBy": { "type": "string" },
+    "baseProductsHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "allowOutdatedBase": { "type": "boolean", "default": false },
+    "note": { "type": "string" },
+    "operations": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 500,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["op", "product"],
+            "properties": {
+              "op": { "const": "upsert" },
+              "productId": { "type": "string", "minLength": 1 },
+              "expectHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+              "product": {
+                "type": "object",
+                "required": ["id"],
+                "properties": {
+                  "id": { "oneOf": [{ "type": "string", "minLength": 1 }, { "type": "number" }] }
+                },
+                "additionalProperties": true
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["op", "productId"],
+            "properties": {
+              "op": { "const": "delete" },
+              "productId": { "type": "string", "minLength": 1 },
+              "expectHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

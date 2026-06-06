@@ -91,11 +91,12 @@ function parseStore(value: unknown, index: number): StoreConfig {
   return {
     id,
     name: optionalString(value.name, `stores[${index}].name`),
+    url: optionalString(value.url, `stores[${index}].url`),
     enabled: optionalBoolean(value.enabled, `stores[${index}].enabled`),
     token,
     tokenEnv,
     apiBaseUrl: optionalString(value.apiBaseUrl, `stores[${index}].apiBaseUrl`),
-    limit: optionalInteger(value.limit, `stores[${index}].limit`, 1, 100),
+    limit: optionalInteger(value.limit, `stores[${index}].limit`, 1, 200),
     requestDelayMs: optionalInteger(value.requestDelayMs, `stores[${index}].requestDelayMs`, 0),
     syncIntervalMinutes: optionalInteger(value.syncIntervalMinutes, `stores[${index}].syncIntervalMinutes`, 1),
     extraQuery: parseExtraQuery(value.extraQuery, `stores[${index}].extraQuery`),

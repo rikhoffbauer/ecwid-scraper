@@ -19,6 +19,7 @@ The token is kept in memory by default. If `keep token in this browser session` 
 - Create/update/delete repository secrets.
 - Save `ECWID_STORE_TOKENS_JSON` for dynamically added stores.
 - Run an on-demand browser-side sync for one store without GitHub Actions.
+- Add/update/delete products by committing one mutation request file and letting GitHub Actions expand it into generated store files.
 - Browse product snapshots through `state/products.index.json` instead of walking huge directories.
 - Browse JSONL event streams through `state/events.index.json`.
 - Load products across stores and cluster similar products for price/index/deal analysis.

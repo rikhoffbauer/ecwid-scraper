@@ -122,8 +122,20 @@ export async function deleteRepoSecret(octokit: Octokit, target: RepoTarget, sec
   await octokit.rest.actions.deleteRepoSecret({ owner: target.owner, repo: target.repo, secret_name: secretName });
 }
 
-export async function dispatchWorkflow(octokit: Octokit, target: RepoTarget, workflowId: string, inputs: Record<string, string | boolean> = {}): Promise<void> {
-  await octokit.rest.actions.createWorkflowDispatch({ owner: target.owner, repo: target.repo, workflow_id: workflowId, ref: target.branch, inputs });
+export async function dispatchWorkflow(octokit: Octokit, target: RepoTarget, workflowId: string, inputs: Record<string, string | boolean> = {}, ref = target.branch): Promise<void> {
+  await octokit.rest.actions.createWorkflowDispatch({ owner: target.owner, repo: target.repo, workflow_id: workflowId, ref, inputs });
+}
+
+export async function createBranchFrom(octokit: Octokit, target: RepoTarget, branch: string, baseRef = target.branch): Promise<void> {
+  if (!/^[A-Za-z0-9._\/-]+$/.test(branch) || branch.includes("..") || branch.startsWith("/") || branch.endsWith("/")) throw new GitHubUiError("Branch name contains unsupported characters");
+  if (await branchExists(octokit, target, branch)) throw new GitHubUiError(`Branch already exists: ${branch}`);
+  const sha = await refCommitSha(octokit, target, baseRef);
+  await octokit.rest.git.createRef({ owner: target.owner, repo: target.repo, ref: `refs/heads/${branch}`, sha });
+}
+
+export async function createPullRequest(octokit: Octokit, target: RepoTarget, params: { head: string; title: string; body: string; base?: string }): Promise<{ number: number; htmlUrl: string }> {
+  const { data } = await octokit.rest.pulls.create({ owner: target.owner, repo: target.repo, head: params.head, base: params.base ?? target.branch, title: params.title, body: params.body });
+  return { number: data.number, htmlUrl: data.html_url };
 }
 
 export async function createCommitFromTree(octokit: Octokit, target: RepoTarget, params: { branch: string; message: string; baseTreeSha?: string; parentSha?: string; tree: Array<Record<string, unknown>> }): Promise<string> {

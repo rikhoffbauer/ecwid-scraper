@@ -75,6 +75,10 @@ gh workflow run "Sync Ecwid stores" \
 
 The preferred manual path is the web UI's browser-side sync: the browser asks for the Ecwid token, fetches products directly from Ecwid, computes product events locally, and commits product files + state snapshots directly to the store orphan branch through the GitHub Git API.
 
+## Product edits from the web UI
+
+For manual product add/update/delete operations, the UI no longer has to write every generated product/state file itself. It creates one JSON request file at `product-mutations/<storeId>/<requestId>.json` on a short-lived branch. The user can either dispatch `.github/workflows/product-mutations.yml` immediately or open a PR for review. The workflow validates the request, applies it to `stores/ecwid/<storeId>`, and regenerates product files, event streams, and state indexes. See `docs/PRODUCT_MUTATIONS.md`.
+
 ## Store branch layout
 
 ```txt

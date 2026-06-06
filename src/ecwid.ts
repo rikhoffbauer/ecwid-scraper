@@ -2,7 +2,7 @@ import { resolveStoreToken } from "./config.ts";
 import type { EcwidProductsPage, JsonObject, StoreConfig } from "./types.ts";
 
 const DEFAULT_API_BASE_URL = "https://app.ecwid.com";
-const DEFAULT_LIMIT = 100;
+const DEFAULT_LIMIT = 200;
 const DEFAULT_REQUEST_DELAY_MS = 100;
 
 export interface FetchAllProductsOptions {

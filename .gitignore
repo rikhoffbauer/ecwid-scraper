@@ -6,3 +6,7 @@ dist/
 .ecwid-sync/
 .DS_Store
 *.log
+
+# macOS zip metadata
+__MACOSX/
+._*

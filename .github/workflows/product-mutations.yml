@@ -1,0 +1,139 @@
+name: Process product mutations
+
+on:
+  workflow_dispatch:
+    inputs:
+      request_ref:
+        description: "Branch/ref containing the product-mutations JSON file. Defaults to this workflow ref."
+        required: false
+        type: string
+      request_path:
+        description: "Single product mutation request file to process."
+        required: true
+        type: string
+      push:
+        description: "Push generated product branch changes."
+        required: false
+        type: boolean
+        default: true
+  pull_request:
+    paths:
+      - "product-mutations/**/*.json"
+      - "src/apply-product-mutations.ts"
+      - "src/product-mutations.ts"
+      - "src/state.ts"
+      - "src/events.ts"
+      - "src/json-diff.ts"
+      - "src/canonical-json.ts"
+      - "src/types.ts"
+      - ".github/workflows/product-mutations.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "product-mutations/**/*.json"
+      - "src/apply-product-mutations.ts"
+      - "src/product-mutations.ts"
+      - "src/state.ts"
+      - "src/events.ts"
+      - "src/json-diff.ts"
+      - "src/canonical-json.ts"
+      - "src/types.ts"
+      - ".github/workflows/product-mutations.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ecwid-product-mutations-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  process:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout request ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.request_ref || github.ref }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Type-check
+        run: bun run check && bun run web:check
+
+      - name: Test
+        run: bun test
+
+      - name: Resolve request files
+        id: requests
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_REQUEST_PATH: ${{ github.event.inputs.request_path || '' }}
+          BEFORE_SHA: ${{ github.event.before || '' }}
+          CURRENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          : > /tmp/product-mutation-requests.txt
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            if [[ -z "$INPUT_REQUEST_PATH" ]]; then
+              echo "request_path is required" >&2
+              exit 1
+            fi
+            printf '%s\n' "$INPUT_REQUEST_PATH" > /tmp/product-mutation-requests.txt
+          elif [[ "$EVENT_NAME" == "pull_request" ]]; then
+            git fetch origin "${{ github.base_ref }}" --depth=1
+            git diff --name-only "origin/${{ github.base_ref }}...HEAD" -- 'product-mutations/**/*.json' > /tmp/product-mutation-requests.txt
+          else
+            if [[ -z "$BEFORE_SHA" || "$BEFORE_SHA" == "0000000000000000000000000000000000000000" ]]; then
+              git ls-tree -r --name-only HEAD -- 'product-mutations/**/*.json' > /tmp/product-mutation-requests.txt
+            else
+              git diff --name-only "$BEFORE_SHA" "$CURRENT_SHA" -- 'product-mutations/**/*.json' > /tmp/product-mutation-requests.txt
+            fi
+          fi
+          if [[ ! -s /tmp/product-mutation-requests.txt ]]; then
+            echo "No product mutation files changed."
+            echo "has_requests=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "Requests:"
+          cat /tmp/product-mutation-requests.txt
+          echo "has_requests=true" >> "$GITHUB_OUTPUT"
+
+      - name: Validate product mutations
+        if: steps.requests.outputs.has_requests == 'true' && github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(--config config/ecwid-stores.json --no-push)
+          while IFS= read -r request; do
+            [[ -n "$request" ]] && args+=(--request "$request")
+          done < /tmp/product-mutation-requests.txt
+          bun run src/apply-product-mutations.ts "${args[@]}"
+
+      - name: Apply product mutations
+        if: steps.requests.outputs.has_requests == 'true' && github.event_name != 'pull_request'
+        shell: bash
+        env:
+          SHOULD_PUSH: ${{ github.event.inputs.push || 'true' }}
+        run: |
+          set -euo pipefail
+          args=(--config config/ecwid-stores.json)
+          if [[ "$SHOULD_PUSH" != "true" ]]; then args+=(--no-push); fi
+          while IFS= read -r request; do
+            [[ -n "$request" ]] && args+=(--request "$request")
+          done < /tmp/product-mutation-requests.txt
+          bun run src/apply-product-mutations.ts "${args[@]}"

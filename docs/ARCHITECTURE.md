@@ -45,6 +45,10 @@ Events are written in JSONL files on the same store branch as the product snapsh
 
 Webhook payloads include the store summary and selected events. If `secretEnv` is configured and present in the sync environment, the webhook payload is signed with HMAC-SHA256 in `x-ecwid-watch-signature-256`.
 
+## Product mutation requests
+
+Manual product edits use a GitOps request-file path instead of direct browser writes to generated store files. The web UI commits a single `product-mutations/<storeId>/<requestId>.json` file to a short-lived branch. `.github/workflows/product-mutations.yml` validates request files on PRs and applies them on explicit dispatch or after merge to `main`. The processor writes the resulting product snapshots, event streams, indexes, and manifest to the relevant store orphan branch.
+
 ## Store onboarding
 
 The web UI supports adding a new store by committing a new entry to `config/ecwid-stores.json`. Token handling has two modes:

@@ -20,7 +20,9 @@
     "web:preview": "vite preview --config web/vite.config.ts --host 0.0.0.0",
     "sync:force": "bun run src/sync-store-branches.ts --config config/ecwid-stores.json --force",
     "sync:legacy": "bun run src/cli.ts sync --config config/ecwid-stores.json",
-    "sync:dry": "bun run src/sync-store-branches.ts --config config/ecwid-stores.json --due-only --no-push"
+    "sync:dry": "bun run src/sync-store-branches.ts --config config/ecwid-stores.json --due-only --no-push",
+    "products:mutate": "bun run src/apply-product-mutations.ts --config config/ecwid-stores.json",
+    "products:mutate:dry": "bun run src/apply-product-mutations.ts --config config/ecwid-stores.json --no-push"
   },
   "devDependencies": {
     "@types/bun": "^1.3.0",

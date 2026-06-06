@@ -77,7 +77,7 @@ async function productsHash(records: Array<{ productId: string; hash: string }>)
 }
 
 async function fetchAllEcwidProducts(store: StoreConfig, token: string, maxProducts?: number): Promise<Record<string, unknown>[]> {
-  const limit = Math.max(1, Math.min(100, Number(store.limit ?? 100)));
+  const limit = Math.max(1, Math.min(200, Number(store.limit ?? 200)));
   const delay = Math.max(0, Number(store.requestDelayMs ?? 100));
   const baseUrl = store.apiBaseUrl ?? "https://app.ecwid.com";
   const products: Record<string, unknown>[] = [];
