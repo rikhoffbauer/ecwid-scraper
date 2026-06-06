@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/schemas/ecwid-stores.schema.json",
+  "title": "Ecwid product git watch store config",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "productsRoot": { "type": "string", "default": "data/stores" },
+    "eventsRoot": { "type": "string", "default": ".ecwid-sync/events" },
+    "eventBranchPrefix": { "type": "string", "default": "events/ecwid", "deprecated": true },
+    "storeBranchPrefix": { "type": "string", "default": "stores/ecwid" },
+    "defaultSyncIntervalMinutes": { "type": "integer", "minimum": 1, "default": 30 },
+    "stores": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/store" } }
+  },
+  "required": ["stores"],
+  "$defs": {
+    "store": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string" },
+        "enabled": { "type": "boolean", "default": true },
+        "token": { "type": "string", "description": "Inline token. Use tokenEnv for public repositories." },
+        "tokenEnv": { "type": "string", "description": "Environment variable that contains the token." },
+        "apiBaseUrl": { "type": "string", "default": "https://app.ecwid.com" },
+        "limit": { "type": "integer", "minimum": 1, "maximum": 100, "default": 100 },
+        "requestDelayMs": { "type": "integer", "minimum": 0, "default": 100 },
+        "syncIntervalMinutes": { "type": "integer", "minimum": 1 },
+        "extraQuery": { "type": "object", "additionalProperties": { "type": ["string", "number", "boolean"] } },
+        "webhooks": { "type": "array", "items": { "$ref": "#/$defs/webhook" } }
+      },
+      "required": ["id"],
+      "oneOf": [{ "required": ["token"] }, { "required": ["tokenEnv"] }]
+    },
+    "webhook": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "url": { "type": "string", "minLength": 1 },
+        "enabled": { "type": "boolean", "default": true },
+        "events": {
+          "type": "array",
+          "items": { "enum": ["*", "product.created", "product.deleted", "product.field_changed"] },
+          "default": ["*"]
+        },
+        "secretEnv": { "type": "string" },
+        "headers": { "type": "object", "additionalProperties": { "type": "string" } }
+      },
+      "required": ["id", "url"]
+    }
+  }
+}

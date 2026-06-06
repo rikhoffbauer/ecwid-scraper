@@ -1,0 +1,20 @@
+{
+  "$schema": "../schemas/ecwid-stores.schema.json",
+  "productsRoot": "data/stores",
+  "eventsRoot": ".ecwid-sync/events",
+  "eventBranchPrefix": "events/ecwid",
+  "stores": [
+    {
+      "id": "99490018",
+      "name": "default-store",
+      "tokenEnv": "ECWID_99490018_TOKEN",
+      "enabled": true,
+      "limit": 100,
+      "requestDelayMs": 100,
+      "syncIntervalMinutes": 30,
+      "webhooks": []
+    }
+  ],
+  "storeBranchPrefix": "stores/ecwid",
+  "defaultSyncIntervalMinutes": 30
+}
