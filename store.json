@@ -1,0 +1,27 @@
+{
+  "lastChangedAt": "2026-06-06T20:55:31Z",
+  "lastEventFile": "events/2026/06/06/db6b0e09de22413c.part-00001-of-00011.jsonl",
+  "lastEventFiles": [
+    "events/2026/06/06/db6b0e09de22413c.part-00001-of-00011.jsonl",
+    "events/2026/06/06/db6b0e09de22413c.part-00002-of-00011.jsonl",
+    "events/2026/06/06/db6b0e09de22413c.part-00003-of-00011.jsonl",
+    "events/2026/06/06/db6b0e09de22413c.part-00004-of-00011.jsonl",
+    "events/2026/06/06/db6b0e09de22413c.part-00005-of-00011.jsonl",
+    "events/2026/06/06/db6b0e09de22413c.part-00006-of-00011.jsonl",
+    "events/2026/06/06/db6b0e09de22413c.part-00007-of-00011.jsonl",
+    "events/2026/06/06/db6b0e09de22413c.part-00008-of-00011.jsonl",
+    "events/2026/06/06/db6b0e09de22413c.part-00009-of-00011.jsonl",
+    "events/2026/06/06/db6b0e09de22413c.part-00010-of-00011.jsonl",
+    "events/2026/06/06/db6b0e09de22413c.part-00011-of-00011.jsonl"
+  ],
+  "lastRunId": "20260606-205531Z",
+  "lastSyncedAt": "2026-06-06T20:55:31Z",
+  "nextSyncNotBefore": "2026-06-06T21:25:31Z",
+  "productCount": 64838,
+  "productsHash": "5cebc962d4d866a0eeffe0a482c4d3339452125dd700e15acaff5a401a7faefe",
+  "schemaVersion": 2,
+  "source": "ecwid",
+  "storeId": "99490018",
+  "storeName": "Usedproducts",
+  "syncIntervalMinutes": 30
+}

@@ -1,0 +1,123 @@
+{
+  "eventTypes": {
+    "product.created": 64838
+  },
+  "files": [
+    {
+      "count": 8103,
+      "eventTypes": {
+        "product.created": 8103
+      },
+      "firstObservedAt": "2026-06-06T20:55:31Z",
+      "hash": "210618d6b8542b3f5e43e4836415e43aa06f5aac8dac01ab831203f786ac11f8",
+      "lastObservedAt": "2026-06-06T20:55:31Z",
+      "path": "events/2026/06/06/db6b0e09de22413c.part-00001-of-00011.jsonl"
+    },
+    {
+      "count": 5844,
+      "eventTypes": {
+        "product.created": 5844
+      },
+      "firstObservedAt": "2026-06-06T20:55:31Z",
+      "hash": "ac54b7fe86b59c17f95f4168a16366c4d6a9f237cd0366d2842d4869de9f8c0b",
+      "lastObservedAt": "2026-06-06T20:55:31Z",
+      "path": "events/2026/06/06/db6b0e09de22413c.part-00002-of-00011.jsonl"
+    },
+    {
+      "count": 5587,
+      "eventTypes": {
+        "product.created": 5587
+      },
+      "firstObservedAt": "2026-06-06T20:55:31Z",
+      "hash": "1d74fdf7642babd28d48f36b52810630a6e9cce0d67c2c930975571dfa38c49a",
+      "lastObservedAt": "2026-06-06T20:55:31Z",
+      "path": "events/2026/06/06/db6b0e09de22413c.part-00003-of-00011.jsonl"
+    },
+    {
+      "count": 6450,
+      "eventTypes": {
+        "product.created": 6450
+      },
+      "firstObservedAt": "2026-06-06T20:55:31Z",
+      "hash": "990148429b1723ba597fb9a18e8947e6555205a086b3104f75bad714175391fe",
+      "lastObservedAt": "2026-06-06T20:55:31Z",
+      "path": "events/2026/06/06/db6b0e09de22413c.part-00004-of-00011.jsonl"
+    },
+    {
+      "count": 6387,
+      "eventTypes": {
+        "product.created": 6387
+      },
+      "firstObservedAt": "2026-06-06T20:55:31Z",
+      "hash": "e8239a9a24600dc8fe2ce1a0709eeaac0720549f4870ad99c17a299f95e686ac",
+      "lastObservedAt": "2026-06-06T20:55:31Z",
+      "path": "events/2026/06/06/db6b0e09de22413c.part-00005-of-00011.jsonl"
+    },
+    {
+      "count": 6419,
+      "eventTypes": {
+        "product.created": 6419
+      },
+      "firstObservedAt": "2026-06-06T20:55:31Z",
+      "hash": "452c291b4c0fc63bd8f442e7a2ebee6e3edc5f639311e989754e5515a8abb478",
+      "lastObservedAt": "2026-06-06T20:55:31Z",
+      "path": "events/2026/06/06/db6b0e09de22413c.part-00006-of-00011.jsonl"
+    },
+    {
+      "count": 4665,
+      "eventTypes": {
+        "product.created": 4665
+      },
+      "firstObservedAt": "2026-06-06T20:55:31Z",
+      "hash": "56e06233d2b8f636f1aaddb0542dd0b73360ce0a846796c12e49dcc25b0e6c75",
+      "lastObservedAt": "2026-06-06T20:55:31Z",
+      "path": "events/2026/06/06/db6b0e09de22413c.part-00007-of-00011.jsonl"
+    },
+    {
+      "count": 6290,
+      "eventTypes": {
+        "product.created": 6290
+      },
+      "firstObservedAt": "2026-06-06T20:55:31Z",
+      "hash": "41b56f256ba0a4f5d667c7df6f7ad7379ee574062a07a8553eace88f90f3b1df",
+      "lastObservedAt": "2026-06-06T20:55:31Z",
+      "path": "events/2026/06/06/db6b0e09de22413c.part-00008-of-00011.jsonl"
+    },
+    {
+      "count": 5826,
+      "eventTypes": {
+        "product.created": 5826
+      },
+      "firstObservedAt": "2026-06-06T20:55:31Z",
+      "hash": "0bccbdaf360983fee89b348eaf1ffa499841195cc3dbedf2b8f6fc7171312611",
+      "lastObservedAt": "2026-06-06T20:55:31Z",
+      "path": "events/2026/06/06/db6b0e09de22413c.part-00009-of-00011.jsonl"
+    },
+    {
+      "count": 6974,
+      "eventTypes": {
+        "product.created": 6974
+      },
+      "firstObservedAt": "2026-06-06T20:55:31Z",
+      "hash": "21d9c9a8e939b3f0603be472ec4495126cdd94145b244c6226118d32172cd341",
+      "lastObservedAt": "2026-06-06T20:55:31Z",
+      "path": "events/2026/06/06/db6b0e09de22413c.part-00010-of-00011.jsonl"
+    },
+    {
+      "count": 2293,
+      "eventTypes": {
+        "product.created": 2293
+      },
+      "firstObservedAt": "2026-06-06T20:55:31Z",
+      "hash": "fd7fb6f3c7d57e12cf7414c5f15370fff98ef3e630c8ed4b650575169976998a",
+      "lastObservedAt": "2026-06-06T20:55:31Z",
+      "path": "events/2026/06/06/db6b0e09de22413c.part-00011-of-00011.jsonl"
+    }
+  ],
+  "generatedAt": "2026-06-06T20:55:31Z",
+  "kind": "event-state-index",
+  "schemaVersion": 1,
+  "source": "ecwid",
+  "storeId": "99490018",
+  "totalEvents": 64838
+}

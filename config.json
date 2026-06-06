@@ -1,0 +1,11 @@
+{
+  "enabled": true,
+  "id": "99490018",
+  "limit": 200,
+  "name": "Usedproducts",
+  "requestDelayMs": 100,
+  "syncIntervalMinutes": 30,
+  "tokenEnv": "ECWID_99490018_TOKEN",
+  "url": "https://www.usedproducts.nl/",
+  "webhooks": []
+}
