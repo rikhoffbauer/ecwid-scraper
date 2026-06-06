@@ -1,7 +1,8 @@
 {
   "eventTypes": {
     "product.created": 64838,
-    "product.field_changed": 490
+    "product.deleted": 228,
+    "product.field_changed": 551
   },
   "files": [
     {
@@ -133,12 +134,23 @@
       "hash": "fd7fb6f3c7d57e12cf7414c5f15370fff98ef3e630c8ed4b650575169976998a",
       "lastObservedAt": "2026-06-06T20:55:31Z",
       "path": "events/2026/06/06/db6b0e09de22413c.part-00011-of-00011.jsonl"
+    },
+    {
+      "count": 289,
+      "eventTypes": {
+        "product.deleted": 228,
+        "product.field_changed": 61
+      },
+      "firstObservedAt": "2026-06-06T23:24:32Z",
+      "hash": "d63725fbb07b4734474b950d11a638dc62f5e5510009f47775f4f8cc628b4875",
+      "lastObservedAt": "2026-06-06T23:24:32Z",
+      "path": "events/2026/06/06/eeef4d5c28c9da79.jsonl"
     }
   ],
-  "generatedAt": "2026-06-06T22:31:44Z",
+  "generatedAt": "2026-06-06T23:24:32Z",
   "kind": "event-state-index",
   "schemaVersion": 1,
   "source": "ecwid",
   "storeId": "99490018",
-  "totalEvents": 65328
+  "totalEvents": 65617
 }
