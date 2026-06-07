@@ -1,14 +1,14 @@
 {
-  "lastChangedAt": "2026-06-07T21:42:38Z",
-  "lastEventFile": "events/2026/06/07/414a17f2b1609a2b.jsonl",
+  "lastChangedAt": "2026-06-07T22:36:46Z",
+  "lastEventFile": "events/2026/06/07/a8d5c4d16e96d2c1.jsonl",
   "lastEventFiles": [
-    "events/2026/06/07/414a17f2b1609a2b.jsonl"
+    "events/2026/06/07/a8d5c4d16e96d2c1.jsonl"
   ],
-  "lastRunId": "20260607-214238Z",
-  "lastSyncedAt": "2026-06-07T21:42:38Z",
-  "nextSyncNotBefore": "2026-06-07T22:12:38Z",
+  "lastRunId": "20260607-223646Z",
+  "lastSyncedAt": "2026-06-07T22:36:46Z",
+  "nextSyncNotBefore": "2026-06-07T23:06:46Z",
   "productCount": 64510,
-  "productsHash": "cbbb762faf2cdd267a6ff6f7d5ebcf85d5dbf55d37d57072e6d2c17e8f9bd27b",
+  "productsHash": "9f85f98ee3b63452db3423aeca15f8981d3ddaf86a009590a9af34507c3aead5",
   "schemaVersion": 2,
   "source": "ecwid",
   "storeId": "99490018",
