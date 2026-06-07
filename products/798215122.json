@@ -269,7 +269,7 @@
   "price": 179.99,
   "priceInProductList": 179.99,
   "productClassId": 0,
-  "quantity": 1,
+  "quantity": 2,
   "relatedProducts": {
     "productIds": [],
     "relatedCategory": {
@@ -306,8 +306,8 @@
   },
   "thumbnailUrl": "https://d2j6dbq0eux0bg.cloudfront.net/images/99490018/5399133395.jpg",
   "unlimited": false,
-  "updateTimestamp": 1780841104,
-  "updated": "2026-06-07 14:05:04 +0000",
+  "updateTimestamp": 1780849504,
+  "updated": "2026-06-07 16:25:04 +0000",
   "url": "https://www.usedproducts.nl/GoPro-HERO-9-Black-B-Grade-p798215122",
   "volume": 0,
   "weight": 0
