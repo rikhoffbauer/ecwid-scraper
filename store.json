@@ -4,9 +4,9 @@
   "lastEventFiles": [
     "events/2026/06/07/fc27b6cd0637e6a5.jsonl"
   ],
-  "lastRunId": "20260607-012757Z",
-  "lastSyncedAt": "2026-06-07T01:27:57Z",
-  "nextSyncNotBefore": "2026-06-07T01:57:57Z",
+  "lastRunId": "20260607-022405Z",
+  "lastSyncedAt": "2026-06-07T02:24:05Z",
+  "nextSyncNotBefore": "2026-06-07T02:54:05Z",
   "productCount": 64404,
   "productsHash": "dd6ea9f3dd4e8db6919a8b0f0c32af935872f35ff6282b14774decee305472b5",
   "schemaVersion": 2,
