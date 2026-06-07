@@ -184,21 +184,3 @@ export interface StoreEventIndex {
     hash: string;
   }>;
 }
-
-export type ProductMutationOperation =
-  | { op: "upsert"; productId: string; product: JsonObject; expectHash?: string }
-  | { op: "delete"; productId: string; expectHash?: string };
-
-export interface ProductMutationBatch {
-  schemaVersion: 1;
-  kind: "ecwid-product-mutation-batch";
-  source: string;
-  requestId: string;
-  storeId: string;
-  requestedAt: string;
-  requestedBy?: string;
-  baseProductsHash?: string;
-  allowOutdatedBase?: boolean;
-  note?: string;
-  operations: ProductMutationOperation[];
-}

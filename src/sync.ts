@@ -1,10 +1,12 @@
 import { mkdir, readdir, readFile, rm, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { stableStringify, sha256Text } from "./canonical-json.ts";
-import { fetchAllProducts, type FetchAllProductsOptions } from "./ecwid.ts";
+import type { FetchAllProductsOptions } from "./ecwid.ts";
 import { eventJsonlShards, createdEvent, deletedEvent, fieldChangedEvents } from "./events.ts";
 import { diffJson } from "./json-diff.ts";
 import { safePathSegment } from "./safe-id.ts";
+import { ecwidSourceAdapter } from "./sources/ecwid.ts";
+import { createReadOnlyHttpClient } from "./sources/read-only-http.ts";
 import type { AppConfig, JsonObject, ProductEvent, ProductSnapshotRecord, StoreConfig, StoreSyncSummary, SyncSummary } from "./types.ts";
 
 export interface SyncStoresOptions extends FetchAllProductsOptions {
@@ -112,7 +114,9 @@ async function syncStore(
   await mkdir(productsDir, { recursive: true });
 
   const existing = await readExistingProducts(productsDir);
-  const fetched = await fetchAllProducts(store, options);
+  const fetched = (await ecwidSourceAdapter.fetchProducts({ ...store, fetchOptions: options }, {
+    http: createReadOnlyHttpClient(options.fetchImpl)
+  })).map((product) => product.raw);
   const seen = new Set<string>();
   const nextRecords: Array<{ productId: string; hash: string }> = [];
   const events: ProductEvent[] = [];

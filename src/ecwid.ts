@@ -8,7 +8,7 @@ const DEFAULT_REQUEST_DELAY_MS = 100;
 const MAX_CONSISTENCY_PASSES = 4;
 
 export interface FetchAllProductsOptions {
-  fetchImpl?: typeof fetch;
+  fetchImpl?: (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
   userAgent?: string;
 }
 

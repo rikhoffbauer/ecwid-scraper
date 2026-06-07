@@ -7,6 +7,7 @@ Mirror one or more Ecwid stores into git and use the repository itself as a prod
 - Each store branch contains current per-product JSON files, append-only JSONL product events, and resolved state snapshots/indexes. Large event/state JSONL outputs are sharded below GitHub blob limits.
 - Store sync intervals are configured per store.
 - The web UI can add stores, manage secrets, configure webhooks, run browser-side on-demand syncs, browse products/events as a webshop-like catalogue, save local favorites/lists, run advanced product queries, and run cross-store analysis.
+- Every external product source is strictly read-only. This project tracks and analyzes products but never modifies source stores or listings.
 
 ## Setup
 
@@ -73,11 +74,8 @@ gh workflow run "Sync Ecwid stores" \
   -f force=true
 ```
 
-For product edits, prefer the web UI's GitOps request-file path: the browser commits one `product-mutations/<storeId>/<requestId>.json` file to a branch or PR, then GitHub Actions validates and applies the resulting product files/events/state to the store orphan branch. Browser-side sync remains available for on-demand catalog mirroring.
-
-## Product edits from the web UI
-
-For manual product add/update/delete operations, the UI no longer has to write every generated product/state file itself. It creates one JSON request file at `product-mutations/<storeId>/<requestId>.json` on a short-lived branch. The user can either dispatch `.github/workflows/product-mutations.yml` immediately or open a PR for review. The workflow validates the request, applies it to `stores/ecwid/<storeId>`, and regenerates product files, event streams, and state indexes. See `docs/PRODUCT_MUTATIONS.md`.
+Browser-side sync remains available for on-demand catalog mirroring. It only reads
+from Ecwid and writes the resulting tracking snapshots to Git.
 
 ## Store branch layout
 

@@ -3,11 +3,13 @@ import { mkdir, readdir, readFile, rm, unlink, writeFile } from "node:fs/promise
 import path from "node:path";
 import { stableStringify, sha256Text } from "./canonical-json.ts";
 import { loadConfig } from "./config.ts";
-import { fetchAllProducts, type FetchAllProductsOptions } from "./ecwid.ts";
+import type { FetchAllProductsOptions } from "./ecwid.ts";
 import { createdEvent, deletedEvent, eventJsonlShards, fieldChangedEvents } from "./events.ts";
 import { runGit, gitOutput, gitSuccess } from "./git.ts";
 import { diffJson } from "./json-diff.ts";
 import { safePathSegment } from "./safe-id.ts";
+import { ecwidSourceAdapter } from "./sources/ecwid.ts";
+import { createReadOnlyHttpClient } from "./sources/read-only-http.ts";
 import { productsHashFromRecords, writeResolvedStoreState } from "./state.ts";
 import type { AppConfig, JsonObject, ProductEvent, ProductSnapshotRecord, StoreConfig, StoreSyncSummary, SyncSummary } from "./types.ts";
 
@@ -185,7 +187,9 @@ async function syncInStoreBranch(config: AppConfig, store: StoreConfig, repoRoot
   const productsDir = path.join(worktreeDir, "products");
   await mkdir(productsDir, { recursive: true });
   const existing = await readExistingProducts(productsDir);
-  const fetched = await fetchAllProducts(store, options);
+  const fetched = (await ecwidSourceAdapter.fetchProducts({ ...store, fetchOptions: options }, {
+    http: createReadOnlyHttpClient(options.fetchImpl)
+  })).map((product) => product.raw);
   const seen = new Set<string>();
   const nextRecords: Array<{ productId: string; hash: string }> = [];
   const events: ProductEvent[] = [];

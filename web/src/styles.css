@@ -51,7 +51,10 @@ a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 code { font-family: "SFMono-Regular", ui-monospace, Menlo, Consolas, monospace; font-size: .92em; color: #284b3b; }
 main { display: block; }
-#root { width: min(1880px, calc(100vw - 28px)); margin: 0 auto 3rem; }
+#root { width: 100%; margin: 0; }
+.workspace-shell { min-height: 100vh; }
+.workspace-content { width: min(1880px, calc(100vw - 28px)); margin: 0 auto 3rem; transition: width .2s ease, margin .2s ease; }
+.workspace-shell.assistant-visible .workspace-content { width: min(1500px, calc(100vw - 430px)); margin-left: 14px; }
 
 .app-shell-header {
   display: flex;
@@ -278,11 +281,46 @@ summary { cursor: pointer; color: var(--muted); }
 }
 .muted { color: var(--muted); }
 
+.assistant-toggle { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+.assistant-drawer {
+  position: fixed;
+  inset: 12px 12px 12px auto;
+  z-index: 50;
+  width: 390px;
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  gap: .8rem;
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 28px;
+  padding: 1rem;
+  color: #f5f3ec;
+  background: #171a18;
+  box-shadow: 0 24px 80px rgba(10,15,12,.34);
+}
+.assistant-head { display: flex; justify-content: space-between; gap: 1rem; align-items: start; }
+.assistant-head h2 { font-size: 1.55rem; }
+.assistant-head button, .assistant-composer button { background: #f4f1e8; }
+.assistant-description { margin: 0; color: #aeb7b1; line-height: 1.45; font-size: .9rem; }
+.assistant-settings { border-color: rgba(255,255,255,.12); background: rgba(255,255,255,.05); }
+.assistant-settings .field { margin-top: .6rem; }
+.assistant-settings input { background: #222724; color: #f5f3ec; border-color: rgba(255,255,255,.15); }
+.assistant-messages { overflow: auto; display: grid; align-content: start; gap: .7rem; padding-right: .2rem; }
+.assistant-message { border: 1px solid rgba(255,255,255,.1); border-radius: 18px; padding: .75rem; background: rgba(255,255,255,.055); }
+.assistant-message.user { background: #234d3a; }
+.assistant-message span { display: block; color: #9fb2a7; font-size: .68rem; text-transform: uppercase; letter-spacing: .12em; font-weight: 800; }
+.assistant-message p { margin: .4rem 0 0; white-space: pre-wrap; line-height: 1.5; }
+.assistant-empty { place-self: center; text-align: center; color: #9fb2a7; max-width: 270px; }
+.assistant-empty h3 { color: #f5f3ec; }
+.assistant-composer { display: grid; grid-template-columns: 1fr auto; gap: .5rem; align-items: end; }
+.assistant-composer textarea { min-height: 76px; background: #222724; color: #f5f3ec; border-color: rgba(255,255,255,.15); }
+
 @media (max-width: 1320px) {
   .catalogue-layout { grid-template-columns: 280px minmax(0,1fr); }
   .detail-panel { position: static; grid-column: 1 / -1; max-height: none; }
 }
 @media (max-width: 980px) {
+  .workspace-content, .workspace-shell.assistant-visible .workspace-content { width: min(100vw - 16px, 1880px); margin: 0 auto 3rem; }
+  .assistant-drawer { inset: 8px; width: auto; }
   #root { width: min(100vw - 16px, 1880px); }
   .app-shell-header, .panel-head { display: grid; align-items: start; }
   .connection-panel, .catalogue-layout, .catalogue-topbar, .two, .three, .four, .store-editor-grid, .toolbar, .cards, .product-list-row { grid-template-columns: 1fr; }

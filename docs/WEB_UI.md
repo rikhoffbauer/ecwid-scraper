@@ -4,9 +4,9 @@ The UI is deployed from `web/dist` by `.github/workflows/deploy-pages.yml`.
 
 Required token capabilities for full administration:
 
-- repository contents write access: edit `config/ecwid-stores.json`, commit product mutation requests, and persist analysis snapshots
+- repository contents write access: edit `config/ecwid-stores.json` and persist analysis snapshots
 - repository secrets write access: create/update/delete Ecwid and webhook secrets
-- Actions write access: optional dispatch of `sync-ecwid.yml` and `product-mutations.yml`
+- Actions write access: optional dispatch of `sync-ecwid.yml`
 
 The GitHub token is stored in `localStorage` under `ecwid-ui.token` so catalogue browsing survives page reloads. Use **Clear token** on shared machines.
 
@@ -60,9 +60,10 @@ name ~= /cotton|linen/i && category |= Apparel
 
 For pattern operators, an unquoted right-hand identifier is treated as a literal if no field with that name exists, so `name *= hoodie` works like `name *= "hoodie"`.
 
-## Product edits
+## Read-only tracking
 
-Manual product add/update/delete operations use the GitOps request-file path. The browser creates one JSON request file at `product-mutations/<storeId>/<requestId>.json` on a short-lived branch. The user can either dispatch `.github/workflows/product-mutations.yml` immediately or open a PR for review. The workflow validates the request, applies it to `stores/ecwid/<storeId>`, and regenerates product files, event streams, and state indexes.
+Products displayed by the UI are tracked snapshots. The UI never edits, deletes, or
+otherwise modifies products in Ecwid or any other source store.
 
 ## Browser-side sync
 

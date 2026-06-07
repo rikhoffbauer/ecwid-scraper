@@ -1,15 +1,16 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { Octokit } from "@octokit/rest";
+import { createConversation, loadMessages, sendAssistantMessage, type AssistantMessage } from "./assistant";
 import { buildAnalysisSnapshot, clusterProducts, dealCandidates, priceIndex, productName as loadedProductName, productPrice as loadedProductPrice } from "./analysis";
 import { buildCatalogProducts, catalogContext, categoryText, formatPrice, hasMeaningfulAttributes, itemToLoadedProduct, productImageUrl, productKey, productName, productPrice, productUrl, searchableText, similarProducts, stockLabel, summarizeHistory, type CatalogProduct } from "./catalog";
 import { browserSyncStore, loadStoreStateProducts } from "./client-sync";
-import { createBranchFrom, createPullRequest, deleteRepoSecret, dispatchWorkflow, getAuthenticatedUser, getTreeFilesByPath, listBranches, listFiles, listRepoSecrets, loadConfig, makeOctokit, parseRepository, readBlobText, readBlobTextByPath, setRepoSecret, writeJsonFile } from "./github";
+import { deleteRepoSecret, dispatchWorkflow, getAuthenticatedUser, getTreeFilesByPath, listBranches, listFiles, listRepoSecrets, loadConfig, makeOctokit, parseRepository, readBlobText, readBlobTextByPath, setRepoSecret, writeJsonFile } from "./github";
 import { EMPTY_LOCAL_CATALOGUE_STATE, loadLocalCatalogueState, makeListId, saveLocalCatalogueState, type LocalCatalogueState } from "./idb";
 import { parseJsonObject, safeJsonPreview, safePathSegment, stableStringify } from "./json";
 import { compileProductQuery } from "./query-language";
-import type { AnalysisSnapshot, AppConfig, LoadedProduct, ProductEvent, ProductMutationBatch, ProductStateIndex, ProductStateIndexRecord, RepoSecretSummary, RepoTarget, StoreConfig, StoreEventIndex, StoreManifest, StoreWebhookConfig, TreeFile } from "./types";
+import type { AnalysisSnapshot, AppConfig, LoadedProduct, ProductEvent, ProductStateIndex, ProductStateIndexRecord, RepoSecretSummary, RepoTarget, StoreConfig, StoreEventIndex, StoreManifest, StoreWebhookConfig, TreeFile } from "./types";
 
-type TabId = "browse" | "overview" | "stores" | "sync" | "mutations" | "secrets" | "events" | "analysis" | "files";
+type TabId = "browse" | "overview" | "stores" | "sync" | "secrets" | "events" | "analysis" | "files";
 type ViewMode = "grid" | "list" | "table";
 type Notice = { kind: "info" | "success" | "error"; text: string } | null;
 type SortKey = "name" | "store" | "price" | "sku" | "stock" | "id" | "category" | "favorite";
@@ -26,7 +27,6 @@ const DEFAULT_REPOSITORY = "rikhoffbauer/ecwid-scraper";
 const DEFAULT_BRANCH = "main";
 const CONFIG_PATH = "config/ecwid-stores.json";
 const SYNC_WORKFLOW_ID = "sync-ecwid.yml";
-const PRODUCT_MUTATION_WORKFLOW_ID = "product-mutations.yml";
 const TOKEN_STORAGE_KEY = "ecwid-ui.token";
 const EVENT_TYPES = ["product.created", "product.deleted", "product.field_changed"] as const;
 
@@ -84,10 +84,6 @@ function updateWebhook(stores: StoreConfig[], storeIndex: number, hookIndex: num
     webhooks[hookIndex] = { ...webhooks[hookIndex], ...patch } as StoreWebhookConfig;
     return { ...store, webhooks };
   });
-}
-
-function safeProductId(value: unknown): string {
-  return typeof value === "string" || typeof value === "number" ? String(value) : "";
 }
 
 function Field(props: { label: string; value: string; onChange: (value: string) => void; type?: string; placeholder?: string; help?: string }) {
@@ -209,12 +205,6 @@ export function App() {
   const [dealThreshold, setDealThreshold] = useState("0.75");
   const [syncMaxProducts, setSyncMaxProducts] = useState("");
   const [analysisSnapshot, setAnalysisSnapshot] = useState<AnalysisSnapshot | null>(null);
-  const [mutationOp, setMutationOp] = useState<"upsert" | "delete">("upsert");
-  const [mutationProductId, setMutationProductId] = useState("");
-  const [mutationJson, setMutationJson] = useState("{\n  \"id\": \"new-product-id\",\n  \"name\": \"New product\",\n  \"price\": 0\n}");
-  const [mutationNote, setMutationNote] = useState("");
-  const [mutationAllowOutdatedBase, setMutationAllowOutdatedBase] = useState(false);
-
   const [query, setQuery] = useState("");
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [showHidden, setShowHidden] = useState(false);
@@ -226,6 +216,13 @@ export function App() {
   const [localState, setLocalState] = useState<LocalCatalogueState>(EMPTY_LOCAL_CATALOGUE_STATE);
   const [newListName, setNewListName] = useState("");
   const [activeListId, setActiveListId] = useState<"all" | "favorites" | string>("all");
+  const [assistantOpen, setAssistantOpen] = useState(true);
+  const [assistantApiUrl, setAssistantApiUrl] = useStoredState("ecwid-ui.assistant-api", "http://localhost:3000");
+  const [assistantToken, setAssistantToken] = useStoredState("ecwid-ui.assistant-token", "");
+  const [assistantConversationId, setAssistantConversationId] = useState<number | null>(null);
+  const [assistantMessages, setAssistantMessages] = useState<AssistantMessage[]>([]);
+  const [assistantInput, setAssistantInput] = useState("");
+  const [assistantBusy, setAssistantBusy] = useState(false);
 
   useEffect(() => {
     loadLocalCatalogueState().then(setLocalState).catch((error) => setNotice({ kind: "error", text: `Loading IndexedDB lists failed: ${(error as Error).message}` }));
@@ -279,7 +276,7 @@ export function App() {
   const clusters = useMemo(() => clusterProducts(products, Number(clusterThreshold) || 0.55), [products, clusterThreshold]);
   const prices = useMemo(() => priceIndex(clusters), [clusters]);
   const deals = useMemo(() => dealCandidates(clusters, Number(dealThreshold) || 0.75), [clusters, dealThreshold]);
-  const tabs: Array<[TabId, string]> = [["browse", "Browse"], ["overview", "Overview"], ["stores", "Stores"], ["sync", "Sync"], ["mutations", "Product edits"], ["secrets", "Secrets"], ["events", "Events"], ["analysis", "Analysis"], ["files", "Files"]];
+  const tabs: Array<[TabId, string]> = [["browse", "Browse"], ["overview", "Overview"], ["stores", "Stores"], ["sync", "Sync"], ["secrets", "Secrets"], ["events", "Events"], ["analysis", "Analysis"], ["files", "Files"]];
 
   function setToken(next: string) {
     setTokenState(next);
@@ -435,66 +432,6 @@ export function App() {
     });
   }
 
-  async function prepareProductEdit(record: ProductStateIndexRecord, storeId = selectedStore?.id) {
-    await run("Preparing product edit", async () => {
-      if (!octokit || !target || !config || !storeId) return;
-      const text = await readBlobTextByPath(octokit, target, record.path, storeBranch(config, storeId));
-      setMutationOp("upsert");
-      setMutationProductId(record.productId);
-      setMutationJson(JSON.stringify(JSON.parse(text), null, 2));
-      setSelectedStoreId(storeId);
-      setTab("mutations");
-    });
-  }
-
-  function prepareProductDelete(record: ProductStateIndexRecord, storeId = selectedStore?.id) {
-    setMutationOp("delete");
-    setMutationProductId(record.productId);
-    setMutationJson("{}");
-    if (storeId) setSelectedStoreId(storeId);
-    setTab("mutations");
-  }
-
-  function selectedMutationRecord(productId: string) {
-    return selectedRecord(selectedProductIndex, productId);
-  }
-
-  function buildProductMutationRequest(store: StoreConfig): ProductMutationBatch {
-    const requestedAt = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
-    const stamp = requestedAt.replaceAll(/[-:]/g, "").replace("T", "-").replace("Z", "Z");
-    const requestId = `${safePathSegment(store.id)}-${stamp}-${mutationOp}`;
-    const baseProductsHash = selectedProductIndex?.productsHash ?? manifests[store.id]?.productsHash;
-    if (mutationOp === "delete") {
-      const productId = mutationProductId.trim();
-      if (!productId) throw new Error("Product ID is required for delete.");
-      const record = selectedMutationRecord(productId);
-      return { schemaVersion: 1, kind: "ecwid-product-mutation-batch", source: "web-ui", requestId, storeId: store.id, requestedAt, requestedBy: authUser || undefined, baseProductsHash, allowOutdatedBase: mutationAllowOutdatedBase, note: mutationNote.trim() || undefined, operations: [{ op: "delete", productId, expectHash: record?.hash }] };
-    }
-    const product = parseJsonObject<Record<string, unknown>>(mutationJson, "product JSON");
-    if (product === null || typeof product !== "object" || Array.isArray(product)) throw new Error("Product JSON must be an object.");
-    const productId = safeProductId(product.id);
-    if (!productId) throw new Error("Product JSON must contain string/number id.");
-    const record = selectedMutationRecord(productId);
-    return { schemaVersion: 1, kind: "ecwid-product-mutation-batch", source: "web-ui", requestId, storeId: store.id, requestedAt, requestedBy: authUser || undefined, baseProductsHash, allowOutdatedBase: mutationAllowOutdatedBase, note: mutationNote.trim() || undefined, operations: [{ op: "upsert", productId, product, expectHash: record?.hash }] };
-  }
-
-  async function submitProductMutation(mode: "dispatch" | "pr") {
-    await run(mode === "pr" ? "Opening product mutation PR" : "Dispatching product mutation workflow", async () => {
-      if (!octokit || !target || !selectedStore || !config) return;
-      const request = buildProductMutationRequest(selectedStore);
-      const requestBranch = `product-mutations/${safePathSegment(request.storeId)}/${safePathSegment(request.requestId)}`;
-      const requestPath = `product-mutations/${safePathSegment(request.storeId)}/${safePathSegment(request.requestId)}.json`;
-      await createBranchFrom(octokit, target, requestBranch, target.branch);
-      await writeJsonFile(octokit, target, { branch: requestBranch, path: requestPath, value: request, message: `products(ecwid:${request.storeId}): request ${mutationOp} ${request.operations[0]?.productId ?? "product"}` });
-      if (mode === "pr") {
-        const pr = await createPullRequest(octokit, target, { head: requestBranch, title: `products(ecwid:${request.storeId}): ${mutationOp} ${request.operations[0]?.productId ?? "product"}`, body: `Product mutation request written to \`${requestPath}\`. Merge this PR to let the product-mutations workflow apply it to \`${storeBranch(config, request.storeId)}\`.` });
-        return `Opened PR #${pr.number}: ${pr.htmlUrl}`;
-      }
-      await dispatchWorkflow(octokit, target, PRODUCT_MUTATION_WORKFLOW_ID, { request_ref: requestBranch, request_path: requestPath, push: true }, target.branch);
-      return `Committed ${requestPath} on ${requestBranch} and dispatched ${PRODUCT_MUTATION_WORKFLOW_ID}.`;
-    });
-  }
-
   async function loadAllProductsFromState() {
     await run("Loading resolved state snapshots", async () => {
       if (!octokit || !target || !config) return;
@@ -560,13 +497,35 @@ export function App() {
   }
 
   function productActions(item: CatalogProduct) {
-    const record = selectedRecord(productIndexes[item.storeId], item.productId);
     return <div className="inline-actions">
       <button onClick={() => toggleFavorite(item.key)}>{favorites.has(item.key) ? "★" : "☆"}</button>
       <button onClick={() => openProductDetail(item)}>Details</button>
-      {record ? <button onClick={() => prepareProductEdit(record, item.storeId)}>Edit</button> : null}
-      {record ? <button className="danger" onClick={() => prepareProductDelete(record, item.storeId)}>Delete</button> : null}
     </div>;
+  }
+
+  async function ensureAssistantConversation(): Promise<number> {
+    if (assistantConversationId) return assistantConversationId;
+    if (!assistantToken) throw new Error("Assistant API token is required.");
+    const conversation = await createConversation(assistantApiUrl, assistantToken);
+    setAssistantConversationId(conversation.id);
+    return conversation.id;
+  }
+
+  async function submitAssistantMessage() {
+    const message = assistantInput.trim();
+    if (!message) return;
+    setAssistantBusy(true);
+    setAssistantInput("");
+    try {
+      const conversationId = await ensureAssistantConversation();
+      setAssistantMessages((current) => [...current, { id: Date.now(), conversationId, role: "user", content: message, metadata: {}, createdAt: new Date().toISOString() }]);
+      await sendAssistantMessage(assistantApiUrl, assistantToken, conversationId, message);
+      setAssistantMessages(await loadMessages(assistantApiUrl, assistantToken, conversationId));
+    } catch (error) {
+      setNotice({ kind: "error", text: `Assistant failed: ${(error as Error).message}` });
+    } finally {
+      setAssistantBusy(false);
+    }
   }
 
   function productCard(item: CatalogProduct) {
@@ -622,13 +581,15 @@ export function App() {
     lists: localState.lists.length
   };
 
-  return <>
+  return <div className={`workspace-shell ${assistantOpen ? "assistant-visible" : ""}`}>
+    <div className="workspace-content">
     <header className="app-shell-header">
       <div>
         <p className="eyebrow">Ecwid Product Git Watch</p>
         <h1>Catalogue console</h1>
       </div>
       <div className="header-metrics"><span>{catalogueStats.visible} visible</span><span>{catalogueStats.stores} stores</span><span>{catalogueStats.favorites} favorites</span></div>
+      <button className="assistant-toggle" onClick={() => setAssistantOpen((value) => !value)}>{assistantOpen ? "Hide assistant" : "Open assistant"}</button>
     </header>
 
     <section className="connection-panel">
@@ -674,7 +635,7 @@ export function App() {
         {detail ? <>
           <div className="detail-media"><ProductImage item={detail.item} product={detail.product} /></div>
           <div className="detail-head"><div><p className="product-store">{detail.item.storeName}</p><h2>{productName(detail.item.summary, detail.product)}</h2><p>{formatPrice(productPrice(detail.item.summary, detail.product))} · {stockLabel(detail.item.summary)}</p></div><button className={`favorite ${favorites.has(detail.item.key) ? "active" : ""}`} onClick={() => toggleFavorite(detail.item.key)}>{favorites.has(detail.item.key) ? "★" : "☆"}</button></div>
-          <div className="detail-actions">{productUrl(detail.item.summary, detail.product, detail.item.storeUrl) ? <a className="button-link" href={productUrl(detail.item.summary, detail.product, detail.item.storeUrl)} target="_blank" rel="noreferrer">Open original webshop</a> : null}<button onClick={() => loadProductHistory(detail.item)}>Load history</button>{selectedRecord(productIndexes[detail.item.storeId], detail.item.productId) ? <button onClick={() => prepareProductEdit(selectedRecord(productIndexes[detail.item.storeId], detail.item.productId)!, detail.item.storeId)}>Edit</button> : null}</div>
+          <div className="detail-actions">{productUrl(detail.item.summary, detail.product, detail.item.storeUrl) ? <a className="button-link" href={productUrl(detail.item.summary, detail.product, detail.item.storeUrl)} target="_blank" rel="noreferrer">Open original webshop</a> : null}<button onClick={() => loadProductHistory(detail.item)}>Load history</button><span className="pill">Tracked read-only</span></div>
           <dl className="detail-kv"><dt>Product ID</dt><dd><code>{detail.item.productId}</code></dd><dt>SKU</dt><dd>{detail.item.summary.sku ?? "—"}</dd><dt>Categories</dt><dd>{categoryText(detail.item.summary) || "—"}</dd><dt>Hash</dt><dd><code>{detail.item.hash}</code></dd><dt>File</dt><dd><code>{detail.item.path}</code></dd></dl>
           <h3>Lists</h3>
           <div className="detail-lists">{localState.lists.length ? localState.lists.map((list) => <label key={list.id}><input type="checkbox" checked={includesListProduct(list.productKeys, detail.item.key)} onChange={(event) => setProductInList(list.id, detail.item.key, event.currentTarget.checked)} /> {list.name}</label>) : <p className="muted">Create a list to organize this product.</p>}</div>
@@ -716,15 +677,6 @@ export function App() {
       {selectedStore ? <JsonBlock value={{ store: selectedStore, branch: selectedBranch, manifest: manifests[selectedStore.id], productIndex: productIndexes[selectedStore.id] ? { productCount: productIndexes[selectedStore.id]?.productCount, shards: productIndexes[selectedStore.id]?.shards.length } : null, eventIndex: eventIndexes[selectedStore.id] }} /> : null}
     </Section>}
 
-    {tab === "mutations" && <Section title="Product edits" description="Create one product mutation JSON file. GitHub Actions expands it into product files, state indexes, and event streams on the store branch.">
-      <div className="toolbar"><select value={selectedStore?.id ?? ""} onChange={(event) => setSelectedStoreId(event.currentTarget.value)}>{config?.stores.map((store) => <option key={store.id} value={store.id}>{store.name ?? store.id}</option>)}</select><span className="pill">branch: <code>{selectedBranch || "—"}</code></span><span className="pill">base: <code>{selectedProductIndex?.productsHash?.slice(0, 12) ?? manifests[selectedStore?.id ?? ""]?.productsHash?.slice(0, 12) ?? "—"}</code></span></div>
-      <div className="grid three"><label className="field"><span>Operation</span><select value={mutationOp} onChange={(event) => setMutationOp(event.currentTarget.value as "upsert" | "delete")}><option value="upsert">add/update product</option><option value="delete">delete product</option></select></label><Field label="Product ID" value={mutationProductId} onChange={setMutationProductId} /><label className="check-row"><input type="checkbox" checked={mutationAllowOutdatedBase} onChange={(event) => setMutationAllowOutdatedBase(event.currentTarget.checked)} /> allow outdated base hash</label></div>
-      {mutationOp === "upsert" ? <TextField label="Product JSON" value={mutationJson} onChange={setMutationJson} rows={12} /> : <JsonBlock value={{ deleteProductId: mutationProductId || "<product id>", expectHash: selectedMutationRecord(mutationProductId)?.hash ?? "not found in loaded index" }} />}
-      <TextField label="Note" value={mutationNote} onChange={setMutationNote} help="Optional context stored in the single mutation request file." />
-      <div className="button-row"><button className="primary" disabled={!selectedStore || busy} onClick={() => submitProductMutation("dispatch")}>Commit request + run workflow</button><button disabled={!selectedStore || busy} onClick={() => submitProductMutation("pr")}>Open review PR</button></div>
-      <JsonBlock value={{ requestFile: selectedStore ? `product-mutations/${safePathSegment(selectedStore.id)}/<request-id>.json` : null, workflow: PRODUCT_MUTATION_WORKFLOW_ID }} />
-    </Section>}
-
     {tab === "events" && <Section title="Events" description="Browse event streams through persisted event indexes.">
       <div className="toolbar"><select value={selectedStore?.id ?? ""} onChange={(event) => setSelectedStoreId(event.currentTarget.value)}>{config?.stores.map((store) => <option key={store.id} value={store.id}>{store.name ?? store.id}</option>)}</select><span className="pill">{selectedEventIndex?.files.length ?? 0} files</span><span className="pill">{selectedEventIndex?.totalEvents ?? 0} events</span></div>
       <JsonBlock value={selectedEventIndex?.eventTypes ?? {}} />
@@ -745,6 +697,21 @@ export function App() {
       <h3>Selected store branch: <code>{selectedBranch}</code></h3><table><thead><tr><th>Path</th><th>Size</th></tr></thead><tbody>{selectedFiles.slice(0, 500).map((file) => <tr key={file.path}><td><code>{file.path}</code></td><td>{formatBytes(file.size)}</td></tr>)}</tbody></table>
       <h3>Loaded file JSON</h3>{selectedJson ? <JsonBlock value={selectedJson} /> : null}
     </Section>}
-  </>;
+    </div>
+    {assistantOpen ? <aside className="assistant-drawer">
+      <div className="assistant-head">
+        <div><p className="eyebrow">Product intelligence</p><h2>Assistant</h2></div>
+        <button onClick={() => setAssistantOpen(false)}>Close</button>
+      </div>
+      <p className="assistant-description">Searches tracked data and the web, executes internal actions and code, and creates analysis artifacts. Source stores remain read-only.</p>
+      <details className="assistant-settings"><summary>Connection</summary><Field label="API URL" value={assistantApiUrl} onChange={setAssistantApiUrl} /><Field label="Session token" type="password" value={assistantToken} onChange={setAssistantToken} /></details>
+      <div className="assistant-messages">
+        {assistantMessages.length ? assistantMessages.map((message) => <article key={message.id} className={`assistant-message ${message.role}`}><span>{message.role}</span><p>{message.content}</p></article>) : <div className="assistant-empty"><h3>Ask about the catalogue</h3><p>Try “Research the newest products and flag only genuinely exceptional value.”</p></div>}
+      </div>
+      <div className="assistant-composer">
+        <textarea value={assistantInput} onChange={(event) => setAssistantInput(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void submitAssistantMessage(); } }} placeholder="Ask, investigate, analyze, or act…" rows={3} />
+        <button className="primary" disabled={assistantBusy || !assistantInput.trim()} onClick={submitAssistantMessage}>{assistantBusy ? "Working…" : "Send"}</button>
+      </div>
+    </aside> : null}
+  </div>;
 }
-

@@ -48,8 +48,6 @@ export interface StoreManifest {
   lastEventFile: string | null;
   syncIntervalMinutes?: number;
   nextSyncNotBefore?: string;
-  lastMutationRequestId?: string;
-  lastMutatedAt?: string;
 }
 
 export interface ProductEvent {
@@ -214,22 +212,4 @@ export interface AnalysisSnapshot {
     avgPrice?: number;
     products: Array<{ storeId: string; productId: string; name: string; sku?: string; price?: number; url?: string }>;
   }>;
-}
-
-export type ProductMutationOperation =
-  | { op: "upsert"; productId: string; product: Record<string, unknown>; expectHash?: string }
-  | { op: "delete"; productId: string; expectHash?: string };
-
-export interface ProductMutationBatch {
-  schemaVersion: 1;
-  kind: "ecwid-product-mutation-batch";
-  source: "web-ui";
-  requestId: string;
-  storeId: string;
-  requestedAt: string;
-  requestedBy?: string;
-  baseProductsHash?: string;
-  allowOutdatedBase?: boolean;
-  note?: string;
-  operations: ProductMutationOperation[];
 }
