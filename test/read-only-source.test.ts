@@ -35,11 +35,13 @@ describe("read-only source HTTP", () => {
       return Response.json({ total: 1, count: 1, offset: 0, limit: 200, items: [{ id: 1, name: "Tracked" }] });
     }) as typeof fetch);
 
-    const products = await ecwidSourceAdapter.fetchProducts({
+    const products: any[] = [];
+    const stream = ecwidSourceAdapter.fetchProducts({
       id: "store-1",
       token: "read-token",
       requestDelayMs: 0
     }, { http });
+    for await (const chunk of stream) products.push(...chunk);
 
     expect(products).toHaveLength(1);
     expect(products[0]).toMatchObject({

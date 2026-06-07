@@ -1,5 +1,4 @@
 import { normalizeJson, sha256Json, sha256Text, stableStringify } from "./canonical-json.ts";
-import { splitJsonlRecords, type JsonlShard } from "./jsonl-shards.ts";
 import type { JsonChange } from "./json-diff.ts";
 import type { JsonObject, ProductEvent } from "./types.ts";
 
@@ -84,13 +83,4 @@ export function eventRunDigest(events: ProductEvent[]): string {
 
 export function eventJsonl(events: ProductEvent[]): string {
   return events.map((event) => JSON.stringify(normalizeJson(event as never))).join("\n") + "\n";
-}
-
-export function eventJsonlShards(events: ProductEvent[], maxBytes?: number): JsonlShard<ProductEvent>[] {
-  return splitJsonlRecords({
-    records: events,
-    fileStem: eventRunDigest(events),
-    maxBytes,
-    render: (event) => JSON.stringify(normalizeJson(event as never))
-  });
 }

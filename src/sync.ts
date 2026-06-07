@@ -1,237 +1,176 @@
-import { mkdir, readdir, readFile, rm, unlink, writeFile } from "node:fs/promises";
-import path from "node:path";
 import { stableStringify, sha256Text } from "./canonical-json.ts";
 import type { FetchAllProductsOptions } from "./ecwid.ts";
-import { eventJsonlShards, createdEvent, deletedEvent, fieldChangedEvents } from "./events.ts";
+import { createdEvent, deletedEvent, fieldChangedEvents } from "./events.ts";
 import { diffJson } from "./json-diff.ts";
-import { safePathSegment } from "./safe-id.ts";
-import { ecwidSourceAdapter } from "./sources/ecwid.ts";
 import { createReadOnlyHttpClient } from "./sources/read-only-http.ts";
-import type { AppConfig, JsonObject, ProductEvent, ProductSnapshotRecord, StoreConfig, StoreSyncSummary, SyncSummary } from "./types.ts";
+import { sourceAdapter } from "./sources/registry.ts";
+import type { SourceKind } from "./sources/types.ts";
+import type { AppConfig, JsonObject, ProductEvent, StoreConfig, StoreSyncSummary, SyncSummary } from "./types.ts";
+import { OperationsDatabase } from "./operations/database.ts";
 
 export interface SyncStoresOptions extends FetchAllProductsOptions {
   cwd?: string;
   now?: Date;
+  db?: OperationsDatabase;
 }
 
 function isoNoMillis(date: Date): string {
   return date.toISOString().replace(/\.\d{3}Z$/, "Z");
 }
 
-function productId(product: JsonObject, storeId: string): string {
-  const id = product.id;
-  if (typeof id !== "string" && typeof id !== "number") {
-    throw new Error(`Product in store ${storeId} is missing string/number id`);
-  }
-  return String(id);
-}
-
-async function pathExists(filePath: string): Promise<boolean> {
-  try {
-    await readFile(filePath);
-    return true;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
-    throw error;
-  }
-}
-
-async function readExistingProducts(productsDir: string): Promise<Map<string, ProductSnapshotRecord>> {
-  const records = new Map<string, ProductSnapshotRecord>();
-
-  let entries: string[] = [];
-  try {
-    entries = await readdir(productsDir);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return records;
-    throw error;
-  }
-
-  for (const entry of entries.sort()) {
-    if (!entry.endsWith(".json")) continue;
-    const filePath = path.join(productsDir, entry);
-    const raw = await readFile(filePath, "utf8");
-    const product = JSON.parse(raw) as JsonObject;
-    const idValue = product.id;
-    const id = typeof idValue === "string" || typeof idValue === "number" ? String(idValue) : entry.replace(/\.json$/, "");
-    const canonical = stableStringify(product);
-    records.set(id, {
-      productId: id,
-      filePath,
-      product,
-      canonical,
-      hash: sha256Text(canonical)
-    });
-  }
-
-  return records;
-}
-
 function storeProductsHash(records: Array<{ productId: string; hash: string }>): string {
   const lines = records
     .map((record) => `${record.productId}\t${record.hash}`)
-    .sort()
+    .sort((a, b) => a.localeCompare(b))
     .join("\n");
   return sha256Text(`${lines}\n`);
 }
 
-async function writeStoreManifest(params: {
-  store: StoreConfig;
-  storeDir: string;
-  observedAt: string;
-  runId: string;
-  productCount: number;
-  productsHash: string;
-  eventFile?: string;
-  eventFiles?: string[];
-}): Promise<void> {
-  const manifestPath = path.join(params.storeDir, "store.json");
-  const manifest = {
-    schemaVersion: 1,
-    source: "ecwid",
-    storeId: params.store.id,
-    storeName: params.store.name ?? null,
-    productCount: params.productCount,
-    productsHash: params.productsHash,
-    lastChangedAt: params.observedAt,
-    lastChangedRunId: params.runId,
-    lastEventFile: params.eventFile ?? null,
-    lastEventFiles: params.eventFiles ?? (params.eventFile ? [params.eventFile] : [])
-  };
-  await writeFile(manifestPath, stableStringify(manifest as never), "utf8");
-}
+export type SyncProgressMessage = 
+  | { type: 'progress'; storeId: string; fetched: number; status: string }
+  | { type: 'summary'; summary: StoreSyncSummary };
 
-async function syncStore(
+export async function* syncStoreStream(
   config: AppConfig,
   store: StoreConfig,
-  root: string,
   runId: string,
   observedAt: string,
-  options: SyncStoresOptions
-): Promise<StoreSyncSummary> {
-  const storeDir = path.join(root, config.productsRoot, safePathSegment(store.id));
-  const productsDir = path.join(storeDir, "products");
-  await mkdir(productsDir, { recursive: true });
-
-  const existing = await readExistingProducts(productsDir);
-  const fetched = (await ecwidSourceAdapter.fetchProducts({ ...store, fetchOptions: options }, {
+  options: SyncStoresOptions,
+  db: OperationsDatabase
+): AsyncGenerator<SyncProgressMessage, StoreSyncSummary, unknown> {
+  const existing = db.listStoreProducts(store.id);
+  const existingMap = new Map(existing.map(p => [p.productId, p]));
+  
+  const adapter = sourceAdapter((store as any).kind || "ecwid");
+  const fetchStream = (adapter as any).fetchProducts({ ...store, fetchOptions: options }, {
     http: createReadOnlyHttpClient(options.fetchImpl)
-  })).map((product) => product.raw);
+  });
+  
   const seen = new Set<string>();
   const nextRecords: Array<{ productId: string; hash: string }> = [];
-  const events: ProductEvent[] = [];
+  
+  let fetchedCount = 0;
   let created = 0;
   let updated = 0;
   let deleted = 0;
   let fieldEvents = 0;
 
-  for (const product of fetched) {
-    const id = productId(product, store.id);
-    if (seen.has(id)) throw new Error(`Ecwid returned duplicate product id ${id} for store ${store.id}`);
-    seen.add(id);
+  yield { type: 'progress', storeId: store.id, fetched: 0, status: 'starting' };
 
-    const filePath = path.join(productsDir, `${safePathSegment(id)}.json`);
-    const canonical = stableStringify(product);
-    const hash = sha256Text(canonical);
-    const previous = existing.get(id);
+  for await (const chunk of fetchStream) {
+    const chunkEvents: ProductEvent[] = [];
+    for (const canonical of chunk as any[]) {
+      const id = canonical.externalId;
+      if (seen.has(id)) throw new Error(`${adapter.kind} returned duplicate product id ${id} for store ${store.id}`);
+      seen.add(id);
 
-    nextRecords.push({ productId: id, hash });
+      const summary = {
+        id: canonical.externalId,
+        name: canonical.title,
+        price: canonical.price,
+        compareToPrice: canonical.compareAtPrice,
+        inStock: canonical.availability !== "unavailable",
+        url: canonical.url,
+        imageUrl: canonical.imageUrls[0],
+        categoryNames: canonical.categories
+      };
+      
+      const dbProduct = { summary, product: canonical.raw } as JsonObject;
+      const canonicalStr = stableStringify(dbProduct);
+      const hash = sha256Text(canonicalStr);
+      const previous = existingMap.get(id);
 
-    if (!previous) {
-      await writeFile(filePath, canonical, "utf8");
-      events.push(createdEvent({ storeId: store.id, productId: id, runId, observedAt }, product, hash));
-      created += 1;
-      continue;
+      nextRecords.push({ productId: id, hash });
+
+      if (!previous) {
+        db.upsertProduct(store.id, id, hash, dbProduct);
+        chunkEvents.push(createdEvent({ storeId: store.id, productId: id, runId, observedAt }, dbProduct, hash));
+        created += 1;
+        continue;
+      }
+
+      if (previous.hash !== hash) {
+        db.upsertProduct(store.id, id, hash, dbProduct);
+        // Only diff the summary to avoid massive events and because we only load summaries into memory
+        const changes = diffJson(previous.product, summary as unknown as JsonObject);
+        const productEvents = fieldChangedEvents(
+          { storeId: store.id, productId: id, runId, observedAt },
+          changes,
+          previous.hash,
+          hash
+        );
+        chunkEvents.push(...productEvents);
+        updated += 1;
+        fieldEvents += productEvents.length;
+      }
     }
-
-    if (previous.hash !== hash) {
-      await writeFile(filePath, canonical, "utf8");
-      const changes = diffJson(previous.product, product);
-      const productEvents = fieldChangedEvents(
-        { storeId: store.id, productId: id, runId, observedAt },
-        changes,
-        previous.hash,
-        hash
-      );
-      events.push(...productEvents);
-      updated += 1;
-      fieldEvents += productEvents.length;
-    }
+    
+    db.insertEvents(chunkEvents);
+    fetchedCount += chunk.length;
+    yield { type: 'progress', storeId: store.id, fetched: fetchedCount, status: 'fetching' };
   }
 
-  for (const [id, previous] of [...existing.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+  const deleteEvents: ProductEvent[] = [];
+  for (const [id, previous] of [...existingMap.entries()].sort(([a], [b]) => a.localeCompare(b))) {
     if (seen.has(id)) continue;
-    await unlink(previous.filePath);
-    events.push(deletedEvent({ storeId: store.id, productId: id, runId, observedAt }, previous.product, previous.hash));
+    db.deleteProduct(store.id, id);
+    deleteEvents.push(deletedEvent({ storeId: store.id, productId: id, runId, observedAt }, previous.product, previous.hash));
     deleted += 1;
   }
-
+  db.insertEvents(deleteEvents);
+  
   const productsHash = storeProductsHash(nextRecords);
-  let eventFile: string | undefined;
-  let eventFiles: string[] | undefined;
 
-  if (events.length > 0) {
-    const dayPath = observedAt.slice(0, 10).replaceAll("-", "/");
-    const eventDir = path.join(root, config.eventsRoot, safePathSegment(store.id), dayPath);
-    await mkdir(eventDir, { recursive: true });
-    eventFiles = [];
-    for (const shard of eventJsonlShards(events)) {
-      const relativePath = path.join(config.eventsRoot, safePathSegment(store.id), dayPath, shard.fileName);
-      await writeFile(path.join(eventDir, shard.fileName), shard.text, "utf8");
-      eventFiles.push(relativePath);
-    }
-    eventFile = eventFiles[0];
-    await writeStoreManifest({
-      store,
-      storeDir,
-      observedAt,
-      runId,
-      productCount: nextRecords.length,
-      productsHash,
-      eventFile,
-      eventFiles
-    });
-  } else if (!(await pathExists(path.join(storeDir, "store.json")))) {
-    await writeStoreManifest({
-      store,
-      storeDir,
-      observedAt,
-      runId,
-      productCount: nextRecords.length,
-      productsHash
-    });
-  }
-
-  return {
+  const summary: StoreSyncSummary = {
     storeId: store.id,
-    fetched: fetched.length,
+    fetched: fetchedCount,
     created,
     updated,
     deleted,
     fieldEvents,
-    eventFile,
-    eventFiles,
     productsHash
   };
+  
+  yield { type: 'summary', summary };
+  return summary;
+}
+
+async function syncStore(
+  config: AppConfig,
+  store: StoreConfig,
+  runId: string,
+  observedAt: string,
+  options: SyncStoresOptions,
+  db: OperationsDatabase
+): Promise<StoreSyncSummary> {
+  let finalSummary: StoreSyncSummary | undefined;
+  for await (const message of syncStoreStream(config, store, runId, observedAt, options, db)) {
+    if (message.type === 'summary') {
+      finalSummary = message.summary;
+    }
+  }
+  return finalSummary!;
 }
 
 export async function syncStores(config: AppConfig, options: SyncStoresOptions = {}): Promise<SyncSummary> {
-  const root = path.resolve(options.cwd ?? process.cwd());
   const now = options.now ?? new Date();
   const observedAt = isoNoMillis(now);
   const runId = observedAt.replaceAll(/[-:]/g, "").replace("T", "-").replace("Z", "Z");
-  await rm(path.join(root, config.eventsRoot), { recursive: true, force: true });
+  
+  const db = options.db ?? new OperationsDatabase();
 
   const enabledStores = config.stores.filter((store) => store.enabled !== false);
   const summaries: StoreSyncSummary[] = [];
 
   for (const store of enabledStores) {
-    summaries.push(await syncStore(config, store, root, runId, observedAt, options));
+    summaries.push(await syncStore(config, store, runId, observedAt, options, db));
   }
 
   const summary: SyncSummary = { runId, observedAt, stores: summaries };
-  const summaryPath = path.join(root, ".ecwid-sync", "summary.json");
-  await mkdir(path.dirname(summaryPath), { recursive: true });
-  await writeFile(summaryPath, stableStringify(summary as never), "utf8");
+  
+  if (!options.db) {
+    db.close();
+  }
+  
   return summary;
 }

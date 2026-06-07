@@ -43,13 +43,15 @@ describe("Shopify source adapter", () => {
       return Response.json(pages.shift());
     }) as unknown as typeof fetch);
 
-    const products = await shopifySourceAdapter.fetchProducts({
+    const products: any[] = [];
+    const stream = shopifySourceAdapter.fetchProducts({
       id: "shop",
       kind: "shopify",
       name: "Shop",
       url: "https://example.myshopify.com",
       enabled: true
     }, { http });
+    for await (const chunk of stream) products.push(...chunk);
 
     expect(products).toHaveLength(2);
     expect(products[0]).toMatchObject({

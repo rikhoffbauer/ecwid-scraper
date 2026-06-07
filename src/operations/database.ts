@@ -1,6 +1,7 @@
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { Database } from "bun:sqlite";
+import type { JsonObject, ProductEvent, StoreConfig } from "../types.ts";
 
 export interface ProductFlag {
   id: number;
@@ -68,6 +69,34 @@ export class OperationsDatabase {
 
   private migrate(): void {
     this.db.exec(`
+      CREATE TABLE IF NOT EXISTS stores (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        config_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS products (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        store_id TEXT NOT NULL,
+        product_id TEXT NOT NULL,
+        hash TEXT NOT NULL,
+        product_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE(store_id, product_id)
+      );
+      CREATE TABLE IF NOT EXISTS product_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        event_id TEXT NOT NULL UNIQUE,
+        store_id TEXT NOT NULL,
+        product_id TEXT NOT NULL,
+        event_type TEXT NOT NULL,
+        run_id TEXT NOT NULL,
+        observed_at TEXT NOT NULL,
+        event_json TEXT NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS product_flags (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         source_id TEXT NOT NULL,
@@ -129,6 +158,96 @@ export class OperationsDatabase {
     `);
   }
 
+  addStore(store: StoreConfig): void {
+    const now = new Date().toISOString();
+    this.db.query(`
+      INSERT INTO stores (id, kind, enabled, config_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        kind = excluded.kind,
+        enabled = excluded.enabled,
+        config_json = excluded.config_json,
+        updated_at = excluded.updated_at
+    `).run(store.id, store.kind || "ecwid", store.enabled === false ? 0 : 1, JSON.stringify(store), now, now);
+  }
+
+  deleteStore(id: string): void {
+    this.db.query("DELETE FROM stores WHERE id = ?").run(id);
+  }
+
+  getStore(id: string): StoreConfig | null {
+    const row = this.db.query("SELECT config_json FROM stores WHERE id = ?").get(id) as { config_json: string } | null;
+    return row ? JSON.parse(row.config_json) : null;
+  }
+
+  listStores(): StoreConfig[] {
+    const rows = this.db.query("SELECT config_json FROM stores").all() as { config_json: string }[];
+    return rows.map(r => JSON.parse(r.config_json));
+  }
+
+  upsertProduct(storeId: string, productId: string, hash: string, product: JsonObject): void {
+    const now = new Date().toISOString();
+    this.db.query(`
+      INSERT INTO products (store_id, product_id, hash, product_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(store_id, product_id) DO UPDATE SET
+        hash = excluded.hash,
+        product_json = excluded.product_json,
+        updated_at = excluded.updated_at
+    `).run(storeId, productId, hash, JSON.stringify(product), now, now);
+  }
+
+  deleteProduct(storeId: string, productId: string): void {
+    this.db.query("DELETE FROM products WHERE store_id = ? AND product_id = ?").run(storeId, productId);
+  }
+
+  getProduct(storeId: string, productId: string): { hash: string; product: JsonObject } | null {
+    const row = this.db.query("SELECT hash, product_json FROM products WHERE store_id = ? AND product_id = ?").get(storeId, productId) as { hash: string; product_json: string } | null;
+    if (!row) return null;
+    return { hash: row.hash, product: JSON.parse(row.product_json) };
+  }
+
+  listProducts(): { storeId: string; productId: string; hash: string; product: JsonObject }[] {
+    const rows = this.db.query("SELECT store_id, product_id, hash, json_extract(product_json, '$.summary') as product_summary FROM products").all() as { store_id: string; product_id: string; hash: string; product_summary: string }[];
+    return rows.map((row) => ({
+      storeId: row.store_id,
+      productId: row.product_id,
+      hash: row.hash,
+      product: row.product_summary ? JSON.parse(row.product_summary) : {}
+    }));
+  }
+
+  listStoreProducts(storeId: string): { productId: string; hash: string; product: JsonObject }[] {
+    const rows = this.db.query("SELECT product_id, hash, json_extract(product_json, '$.summary') as product_summary FROM products WHERE store_id = ?").all(storeId) as { product_id: string; hash: string; product_summary: string }[];
+    return rows.map((row) => ({
+      productId: row.product_id,
+      hash: row.hash,
+      product: row.product_summary ? JSON.parse(row.product_summary) : {}
+    }));
+  }
+
+  insertEvents(events: ProductEvent[]): void {
+    if (events.length === 0) return;
+    const stmt = this.db.query(`
+      INSERT INTO product_events (event_id, store_id, product_id, event_type, run_id, observed_at, event_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(event_id) DO NOTHING
+    `);
+    const transaction = this.db.transaction((evs: ProductEvent[]) => {
+      for (const event of evs) {
+        stmt.run(event.eventId, event.storeId, event.productId, event.eventType, event.runId, event.observedAt, JSON.stringify(event));
+      }
+    });
+    transaction(events);
+  }
+
+  listEvents(storeId?: string, limit = 500): ProductEvent[] {
+    const rows = storeId 
+      ? this.db.query("SELECT event_json FROM product_events WHERE store_id = ? ORDER BY id DESC LIMIT ?").all(storeId, limit) as { event_json: string }[]
+      : this.db.query("SELECT event_json FROM product_events ORDER BY id DESC LIMIT ?").all(limit) as { event_json: string }[];
+    return rows.map(r => JSON.parse(r.event_json));
+  }
+
   addFlag(input: Omit<ProductFlag, "id" | "createdAt">): ProductFlag {
     const createdAt = new Date().toISOString();
     this.db.query(`
@@ -151,6 +270,11 @@ export class OperationsDatabase {
         ? this.db.query("SELECT * FROM product_flags WHERE source_id = ? ORDER BY created_at DESC").all(sourceId)
         : this.db.query("SELECT * FROM product_flags ORDER BY created_at DESC").all();
     return (rows as Record<string, unknown>[]).map((row) => this.mapFlag(row));
+  }
+
+  removeFlag(sourceId: string, productId: string, label: string): { sourceId: string; productId: string; label: string; removed: boolean } {
+    const result = this.db.query("DELETE FROM product_flags WHERE source_id = ? AND product_id = ? AND label = ?").run(sourceId, productId, label);
+    return { sourceId, productId, label, removed: result.changes > 0 };
   }
 
   createRule(input: Pick<AutomationRule, "name" | "instruction" | "eventTypes" | "sourceIds"> & { enabled?: boolean }): AutomationRule {

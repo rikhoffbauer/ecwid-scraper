@@ -10,6 +10,26 @@ Required token capabilities for full administration:
 
 The GitHub token is stored in `localStorage` under `ecwid-ui.token` so catalogue browsing survives page reloads. Use **Clear token** on shared machines.
 
+## Workspace design
+
+The UI uses a light-first editorial intelligence workspace:
+
+- a slim left rail switches Catalogue, Intelligence, Activity, Sources, and Settings
+- one contextual left sidebar holds filters and workspace controls
+- one contextual right sidebar switches Assistant, Product Details, and Activity
+- catalogue results load progressively as the user scrolls instead of using pagination
+- advanced controls use progressive disclosure to keep the default workspace quiet
+
+The assistant renders trusted application-owned widgets inline in chat for products,
+comparisons, event lists, analysis summaries, action results, and artifacts. It never
+renders assistant-provided HTML. Reversible internal actions include an inline undo
+control; external stores remain read-only.
+
+The assistant can use a user-selected shared browser tab, window, or screen as visual
+context. The UI always displays an active sharing preview and stop control. Screen
+frames are sampled at low detail and the existing text conversation remains available
+when Realtime voice is unavailable.
+
 ## Product browsing
 
 The default view is the catalogue browser. It reads each store branch's `state/products.index.json` and uses product summaries for fast multi-store browsing without walking `products/*.json`.

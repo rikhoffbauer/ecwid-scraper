@@ -1,6 +1,7 @@
 import type { JsonObject } from "../types.ts";
 import { ActionRegistry } from "./actions.ts";
 import { OperationsDatabase } from "./database.ts";
+import { widgetsForToolCall, type AssistantWidget } from "./widgets.ts";
 
 interface FunctionCall {
   type: "function_call";
@@ -20,6 +21,7 @@ export interface AssistantReply {
   text: string;
   responseId: string;
   toolCalls: Array<{ name: string; input: unknown; output: unknown }>;
+  widgets: AssistantWidget[];
 }
 
 function outputText(response: ResponseResult): string {
@@ -39,15 +41,23 @@ export class InteractiveAssistant {
     if (!apiKey) throw new Error("OPENAI_API_KEY is required for the assistant");
   }
 
-  async reply(conversationId: number, message: string): Promise<AssistantReply> {
+  async reply(conversationId: number, message: string, screenFrame?: string): Promise<AssistantReply> {
     const conversation = this.db.conversation(conversationId);
     if (!conversation) throw new Error(`Conversation ${conversationId} does not exist`);
     this.db.addMessage(conversationId, "user", message);
     const toolCalls: AssistantReply["toolCalls"] = [];
+    const input = screenFrame ? [{
+      role: "user",
+      content: [
+        { type: "input_text", text: message },
+        { type: "input_image", image_url: screenFrame, detail: "low" }
+      ]
+    }] : message;
     let response = await this.createResponse({
-      input: message,
+      input,
       previousResponseId: conversation.previousResponseId
     });
+    const widgets: AssistantWidget[] = [];
     for (let iteration = 0; iteration < 12; iteration += 1) {
       const calls = (response.output ?? []).filter((item): item is FunctionCall => item.type === "function_call");
       if (!calls.length) break;
@@ -56,14 +66,15 @@ export class InteractiveAssistant {
         const input = JSON.parse(call.arguments || "{}") as Record<string, unknown>;
         const output = await this.actions.execute(call.name, input, { db: this.db, actor: `assistant:${conversationId}`, products: this.products });
         toolCalls.push({ name: call.name, input, output });
+        widgets.push(...widgetsForToolCall(call.name, input, output));
         outputs.push({ type: "function_call_output", call_id: call.call_id, output: JSON.stringify(output) });
       }
       response = await this.createResponse({ input: outputs, previousResponseId: response.id });
     }
     const text = outputText(response);
     this.db.setConversationResponse(conversationId, response.id);
-    this.db.addMessage(conversationId, "assistant", text, { responseId: response.id, toolCalls });
-    return { conversationId, text, responseId: response.id, toolCalls };
+    this.db.addMessage(conversationId, "assistant", text, { responseId: response.id, toolCalls, widgets });
+    return { conversationId, text, responseId: response.id, toolCalls, widgets };
   }
 
   private async createResponse(params: { input: unknown; previousResponseId?: string | null }): Promise<ResponseResult> {

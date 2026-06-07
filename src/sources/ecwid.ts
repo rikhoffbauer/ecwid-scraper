@@ -5,10 +5,12 @@ import type { ReadOnlySourceAdapter } from "./types.ts";
 
 export const ecwidSourceAdapter: ReadOnlySourceAdapter<StoreConfig & { fetchOptions?: FetchAllProductsOptions }> = {
   kind: "ecwid",
-  fetchProducts(config, context) {
-    return fetchAllProducts(config, {
+  async *fetchProducts(config, context) {
+    for await (const chunk of fetchAllProducts(config, {
       ...config.fetchOptions,
       fetchImpl: (input, init) => context.http.fetch(input, init)
-    }).then((products) => products.map((product) => canonicalFromEcwid(config.id, product)));
+    })) {
+      yield chunk.map((product) => canonicalFromEcwid(config.id, product));
+    }
   }
 };

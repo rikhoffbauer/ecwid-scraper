@@ -1,0 +1,4 @@
+import fs from 'fs';
+let code = fs.readFileSync('test/sync.test.ts', 'utf8');
+code = code.replace(/expect\(events\.find/, 'console.log(events.filter(e => e.eventType === "product.field_changed").map(e => e.path)); expect(events.find');
+fs.writeFileSync('test/sync.test.ts', code);

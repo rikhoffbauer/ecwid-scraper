@@ -1,27 +1,22 @@
 {
-  "name": "ecwid-product-git-watch",
+  "name": "ecwid-product-sync",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Mirror Ecwid product catalogs into git snapshots and append-only product event branches.",
+  "description": "Mirror Ecwid product catalogs into a local database and append-only product events.",
   "license": "MIT",
   "bin": {
-    "ecwid-product-git-watch": "src/cli.ts"
+    "ecwid-product-sync": "src/cli.ts"
   },
   "scripts": {
-    "sync": "bun run src/sync-store-branches.ts --config config/ecwid-stores.json --due-only",
-    "events:commit": "bun run src/commit-event-branches.ts --config config/ecwid-stores.json",
-    "events:commit:dry": "bun run src/commit-event-branches.ts --config config/ecwid-stores.json --no-push",
+    "sync": "bun run src/cli.ts sync --config config/ecwid-stores.json",
     "test": "bun test",
     "check": "tsc --noEmit",
     "web:check": "tsc -p web/tsconfig.json --noEmit",
     "web:dev": "vite --config web/vite.config.ts --host 0.0.0.0",
     "web:build": "vite build --config web/vite.config.ts",
     "web:preview": "vite preview --config web/vite.config.ts --host 0.0.0.0",
-    "server": "PATH=\"$HOME/.bun/bin:$PATH\" bun src/server.ts",
-    "sync:force": "bun run src/sync-store-branches.ts --config config/ecwid-stores.json --force",
-    "sync:legacy": "bun run src/cli.ts sync --config config/ecwid-stores.json",
-    "sync:dry": "bun run src/sync-store-branches.ts --config config/ecwid-stores.json --due-only --no-push"
+    "server": "PATH=\"$HOME/.bun/bin:$PATH\" bun src/server.ts"
   },
   "devDependencies": {
     "@types/bun": "^1.3.0",

@@ -1,9 +1,9 @@
-import { mkdtemp, readFile, readdir } from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
 import { describe, expect, test } from "bun:test";
 import type { AppConfig, EcwidProductsPage } from "../src/types.ts";
 import { syncStores } from "../src/sync.ts";
+import { OperationsDatabase } from "../src/operations/database.ts";
+import path from "node:path";
+import os from "node:os";
 
 function response(page: EcwidProductsPage): Response {
   return new Response(JSON.stringify(page), {
@@ -18,21 +18,20 @@ function mockFetch(pages: EcwidProductsPage[]): typeof fetch {
 }
 
 const config: AppConfig = {
-  productsRoot: "data/stores",
-  eventsRoot: ".ecwid-sync/events",
-  eventBranchPrefix: "events/ecwid",
-  stores: [{ id: "store-1", token: "public_token", limit: 100, requestDelayMs: 0 }]
+  stores: [{ id: "store-1", token: "public_token", limit: 100, requestDelayMs: 0 } as any]
 };
 
 describe("syncStores", () => {
-  test("creates, updates, deletes snapshots and writes deterministic event files", async () => {
-    const cwd = await mkdtemp(path.join(os.tmpdir(), "ecwid-sync-test-"));
+  test("creates, updates, deletes snapshots and writes events to database", async () => {
+    const dbPath = path.join(os.tmpdir(), `test-db-${Math.random().toString(36).slice(2)}.sqlite`);
+    const db = new OperationsDatabase(dbPath);
+    
     const firstNow = new Date("2026-06-06T00:00:00Z");
     const secondNow = new Date("2026-06-06T00:05:00Z");
 
     const first = await syncStores(config, {
-      cwd,
       now: firstNow,
+      db,
       fetchImpl: mockFetch([
         {
           total: 2,
@@ -48,11 +47,13 @@ describe("syncStores", () => {
     });
 
     expect(first.stores[0]).toMatchObject({ created: 2, updated: 0, deleted: 0 });
-    expect((await readdir(path.join(cwd, "data/stores/store-1/products"))).sort()).toEqual(["1.json", "2.json"]);
+    
+    let products = db.listStoreProducts("store-1").map(p => p.productId).sort();
+    expect(products).toEqual(["1", "2"]);
 
     const second = await syncStores(config, {
-      cwd,
       now: secondNow,
+      db,
       fetchImpl: mockFetch([
         {
           total: 2,
@@ -68,23 +69,23 @@ describe("syncStores", () => {
     });
 
     expect(second.stores[0]).toMatchObject({ created: 1, updated: 1, deleted: 1 });
-    expect((await readdir(path.join(cwd, "data/stores/store-1/products"))).sort()).toEqual(["1.json", "3.json"]);
+    
+    products = db.listStoreProducts("store-1").map(p => p.productId).sort();
+    expect(products).toEqual(["1", "3"]);
 
-    const eventRoot = path.join(cwd, ".ecwid-sync/events/store-1/2026/06/06");
-    const eventFiles = await readdir(eventRoot);
-    expect(eventFiles).toHaveLength(1);
+    const events = db.listEvents("store-1");
+    // Events: 2 created (first sync), 1 created (second sync), 1 deleted (second sync)
+    // 4 field changes (price in summary, price in product, URL in summary, imageUrl in summary) -> Wait, we changed diff to only diff summary
+    
+    expect(events.map((event) => event.eventType).filter(e => e === "product.created").length).toBe(3);
+    expect(events.map((event) => event.eventType).filter(e => e === "product.deleted").length).toBe(1);
 
-    const jsonl = await readFile(path.join(eventRoot, eventFiles[0]!), "utf8");
-    const events = jsonl.trim().split("\n").map((line) => JSON.parse(line));
-    expect(events.map((event) => event.eventType).sort()).toEqual([
-      "product.created",
-      "product.deleted",
-      "product.field_changed"
-    ]);
-    expect(events.find((event) => event.eventType === "product.field_changed")).toMatchObject({
+    expect(events.find((event) => event.eventType === "product.field_changed" && event.path === "/price")).toMatchObject({
       path: "/price",
       before: 10,
       after: 11
     });
+    
+    db.close();
   });
 });

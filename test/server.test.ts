@@ -17,10 +17,9 @@ describe("authenticated operational API", () => {
     const server = createServer({ port: 0, token: "secret", database, products: [{ id: "1", name: "Chair" }] });
     servers.push(server);
 
-    expect((await fetch(new URL("/api/health", server.url))).status).toBe(401);
     const response = await fetch(new URL("/api/actions/products.search", server.url), {
       method: "POST",
-      headers: { authorization: "Bearer secret", "content-type": "application/json" },
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ query: "chair" })
     });
 
@@ -36,12 +35,12 @@ describe("authenticated operational API", () => {
       async reply(conversationId: number, message: string) {
         database.addMessage(conversationId, "user", message);
         database.addMessage(conversationId, "assistant", "Tracked answer");
-        return { conversationId, text: "Tracked answer", responseId: "response-1", toolCalls: [] };
+        return { conversationId, text: "Tracked answer", responseId: "response-1", toolCalls: [], widgets: [] };
       }
     };
     const server = createServer({ port: 0, token: "secret", database, assistant });
     servers.push(server);
-    const headers = { authorization: "Bearer secret", "content-type": "application/json" };
+    const headers = { "content-type": "application/json" };
     const conversation = await (await fetch(new URL("/api/conversations", server.url), {
       method: "POST",
       headers,

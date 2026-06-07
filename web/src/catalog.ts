@@ -171,27 +171,25 @@ export function catalogContext(item: CatalogProduct): Record<string, unknown> {
   };
 }
 
-export function buildCatalogProducts(config: AppConfig | null, recordsByStore: Record<string, ProductStateIndexRecord[]>, storeBranch: (config: AppConfig, storeId: string) => string): CatalogProduct[] {
-  if (!config) return [];
-  const stores = new Map(config.stores.map((store) => [store.id, store]));
+export function buildCatalogProducts(products: LoadedProduct[], config?: AppConfig | null): CatalogProduct[] {
+  const stores = new Map(config?.stores.map((store) => [store.id, store]) ?? []);
   const items: CatalogProduct[] = [];
-  for (const [storeId, records] of Object.entries(recordsByStore)) {
+  for (const record of products) {
+    const storeId = record.storeId;
     const store = stores.get(storeId);
-    const branch = storeBranch(config, storeId);
-    for (const record of records) {
-      items.push({
-        key: productKey(storeId, record.productId),
-        storeId,
-        storeName: storeDisplayName(store),
-        storeUrl: store?.url,
-        branch,
-        productId: record.productId,
-        hash: record.hash,
-        path: record.path,
-        shardPath: record.shardPath,
-        summary: record.summary
-      });
-    }
+    items.push({
+      key: productKey(storeId, record.path.split("/").pop() ?? ""),
+      storeId,
+      storeName: storeDisplayName(store),
+      storeUrl: store?.url,
+      branch: "main",
+      productId: record.path.split("/").pop() ?? "",
+      hash: record.hash ?? "",
+      path: record.path,
+      shardPath: "",
+      summary: record.summary,
+      product: record.product
+    });
   }
   return items.sort((a, b) => productName(a.summary).localeCompare(productName(b.summary)) || a.storeName.localeCompare(b.storeName));
 }

@@ -46,6 +46,8 @@ describe("operational actions and automations", () => {
     expect(output).toMatchObject({ sourceId: "source-1", productId: "rare", label: "review" });
     expect(db.listFlags()).toHaveLength(1);
     expect(db.listAudit()).toEqual([expect.objectContaining({ action: "flags.add", actor: "assistant", status: "succeeded" })]);
+    await actions.execute("flags.remove", { sourceId: "source-1", productId: "rare", label: "review" }, { db, actor: "assistant", products: products() });
+    expect(db.listFlags()).toHaveLength(0);
   });
 
   test("runs exceptional-value automation once per event", async () => {

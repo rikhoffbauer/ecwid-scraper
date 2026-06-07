@@ -51,12 +51,15 @@ describe("JSON-LD marketplace source adapters", () => {
   test("fetches public pages through read-only HTTP", async () => {
     const methods: string[] = [];
     const adapter = createJsonLdMarketplaceAdapter("ibood");
-    const products = await adapter.fetchProducts(config, {
+    const products: any[] = [];
+    const stream = adapter.fetchProducts(config, {
       http: createReadOnlyHttpClient((async (_input: string | URL | Request, init?: RequestInit) => {
         methods.push(init?.method ?? "GET");
         return new Response(html, { headers: { "content-type": "text/html" } });
       }) as unknown as typeof fetch)
     });
+    for await (const chunk of stream) products.push(...chunk);
+    
     expect(products).toHaveLength(1);
     expect(methods).toEqual(["GET"]);
   });

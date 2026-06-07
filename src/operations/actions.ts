@@ -65,6 +65,23 @@ export function createDefaultActionRegistry(): ActionRegistry {
     }
   });
   registry.register({
+    name: "products.compare",
+    description: "Find likely matching tracked products by product name, SKU, or identifier.",
+    async execute(input, context) {
+      const query = stringInput(input, "query").toLowerCase();
+      return context.products.filter((product) => JSON.stringify(product).toLowerCase().includes(query)).slice(0, 20);
+    }
+  });
+  registry.register({
+    name: "events.recent",
+    description: "Read recent tracked product events.",
+    async execute(input, context) {
+      const sourceId = typeof input.sourceId === "string" ? input.sourceId : undefined;
+      const limit = typeof input.limit === "number" ? Math.max(1, Math.min(100, Math.floor(input.limit))) : 20;
+      return context.db.listEvents(sourceId).slice(-limit).reverse();
+    }
+  });
+  registry.register({
     name: "flags.add",
     description: "Add or update an internal flag on a tracked product.",
     async execute(input, context) {
@@ -76,6 +93,13 @@ export function createDefaultActionRegistry(): ActionRegistry {
         confidence: typeof input.confidence === "number" ? input.confidence : null,
         createdBy: context.actor
       });
+    }
+  });
+  registry.register({
+    name: "flags.remove",
+    description: "Undo an internal product flag. This never changes a source store.",
+    async execute(input, context) {
+      return context.db.removeFlag(stringInput(input, "sourceId"), stringInput(input, "productId"), stringInput(input, "label"));
     }
   });
   return registry;

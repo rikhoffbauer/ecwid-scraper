@@ -42,5 +42,5 @@ export interface SourceContext {
 
 export interface ReadOnlySourceAdapter<TConfig> {
   readonly kind: SourceKind;
-  fetchProducts(config: TConfig, context: SourceContext): Promise<CanonicalProduct[]>;
+  fetchProducts(config: TConfig, context: SourceContext): AsyncGenerator<CanonicalProduct[], void, unknown>;
 }

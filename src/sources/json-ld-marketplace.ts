@@ -106,12 +106,13 @@ export function parseJsonLdProducts(config: JsonLdMarketplaceConfig, html: strin
 export function createJsonLdMarketplaceAdapter(kind: JsonLdMarketplaceKind): ReadOnlySourceAdapter<JsonLdMarketplaceConfig> {
   return {
     kind,
-    async fetchProducts(config, context) {
+    async *fetchProducts(config, context) {
       const response = await context.http.fetch(config.url, {
         headers: { accept: "text/html,application/xhtml+xml" }
       });
       if (!response.ok) throw new Error(`${kind} source ${config.id} failed: ${response.status} ${response.statusText}`);
-      return parseJsonLdProducts(config, await response.text(), response.url || config.url);
+      const chunk = parseJsonLdProducts(config, await response.text(), response.url || config.url);
+      if (chunk.length > 0) yield chunk;
     }
   };
 }

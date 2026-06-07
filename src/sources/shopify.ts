@@ -95,8 +95,7 @@ function normalize(config: ShopifyConfig, product: ShopifyProduct): CanonicalPro
 
 export const shopifySourceAdapter: ReadOnlySourceAdapter<ShopifyConfig> = {
   kind: "shopify",
-  async fetchProducts(config, context) {
-    const products: CanonicalProduct[] = [];
+  async *fetchProducts(config, context) {
     const tokenEnv = config.credentialsEnv?.storefrontToken;
     const token = tokenEnv ? process.env[tokenEnv] : undefined;
     let after: string | null = null;
@@ -112,11 +111,13 @@ export const shopifySourceAdapter: ReadOnlySourceAdapter<ShopifyConfig> = {
       if (page.errors?.length) throw new Error(`Shopify source ${config.id} failed: ${page.errors.map((error) => error.message ?? "unknown error").join("; ")}`);
       const connection = page.data?.products;
       if (!connection) throw new Error(`Shopify source ${config.id} returned no products connection`);
-      products.push(...(connection.nodes ?? []).map((product) => normalize(config, product)));
+      
+      const chunk = (connection.nodes ?? []).map((product) => normalize(config, product));
+      if (chunk.length > 0) yield chunk;
+
       after = connection.pageInfo?.hasNextPage ? connection.pageInfo.endCursor ?? null : null;
       if (connection.pageInfo?.hasNextPage && !after) throw new Error(`Shopify source ${config.id} indicated another page without an end cursor`);
     } while (after);
-    return products;
   }
 };
 

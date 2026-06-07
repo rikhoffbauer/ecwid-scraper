@@ -11,6 +11,7 @@ export interface StoreWebhookConfig {
 
 export interface StoreConfig {
   id: string;
+  kind?: string;
   name?: string;
   url?: string;
   enabled?: boolean;
@@ -26,10 +27,6 @@ export interface StoreConfig {
 
 export interface AppConfig {
   $schema?: string;
-  productsRoot: string;
-  eventsRoot: string;
-  eventBranchPrefix: string;
-  storeBranchPrefix: string;
   defaultSyncIntervalMinutes: number;
   stores: StoreConfig[];
 }
