@@ -184,8 +184,8 @@
   "defaultCombinationId": 0,
   "defaultDisplayedLowestPrice": 549.99,
   "defaultDisplayedLowestPriceFormatted": "€ 549,99",
-  "defaultDisplayedPrice": 549.99,
-  "defaultDisplayedPriceFormatted": "€ 549,99",
+  "defaultDisplayedPrice": 509.99,
+  "defaultDisplayedPriceFormatted": "€ 509,99",
   "description": "<p><em><strong>NU TE KOOP BIJ USED PRODUCTS ZAANDAM:</strong></em><br><br>- In zeer nette staat<br>- Origineel Apple Scherm<br>- Incl. 3 maanden garantie<br>- Apple Batterij Conditie: <br>- Incl. laadkabel<br>- Excl. doos</p>",
   "dimensions": {
     "height": 0,
@@ -208,7 +208,10 @@
   "isShippingRequired": true,
   "lowestPrice": 549.99,
   "lowestPriceSettings": {
-    "lowestPriceEnabled": true
+    "defaultDisplayedManualLowestPrice": 549.99,
+    "defaultDisplayedManualLowestPriceFormatted": "€ 549,99",
+    "lowestPriceEnabled": true,
+    "manualLowestPrice": 549.99
   },
   "media": {
     "images": [
@@ -235,8 +238,8 @@
     "width": 800
   },
   "originalImageUrl": "https://d2j6dbq0eux0bg.cloudfront.net/images/99490018/products/839927246/5806464394.jpg",
-  "price": 549.99,
-  "priceInProductList": 549.99,
+  "price": 509.99,
+  "priceInProductList": 509.99,
   "productClassId": 42631002,
   "quantity": 1,
   "relatedProducts": {
@@ -275,8 +278,8 @@
   },
   "thumbnailUrl": "https://d2j6dbq0eux0bg.cloudfront.net/images/99490018/products/839927246/5806464397.jpg",
   "unlimited": false,
-  "updateTimestamp": 1780807805,
-  "updated": "2026-06-07 04:50:05 +0000",
+  "updateTimestamp": 1780823104,
+  "updated": "2026-06-07 09:05:04 +0000",
   "url": "https://www.usedproducts.nl/iPhone-15-Pro-128GB-Grijs-In-zeer-nette-staat-p839927246",
   "volume": 0,
   "weight": 0

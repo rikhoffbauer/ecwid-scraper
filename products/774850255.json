@@ -241,7 +241,7 @@
   "price": 23.99,
   "priceInProductList": 23.99,
   "productClassId": 0,
-  "quantity": 21,
+  "quantity": 19,
   "relatedProducts": {
     "productIds": [],
     "relatedCategory": {
@@ -278,8 +278,8 @@
   },
   "thumbnailUrl": "https://d2j6dbq0eux0bg.cloudfront.net/images/99490018/5104665720.jpg",
   "unlimited": false,
-  "updateTimestamp": 1776693309,
-  "updated": "2026-04-20 13:55:09 +0000",
+  "updateTimestamp": 1780823704,
+  "updated": "2026-06-07 09:15:04 +0000",
   "url": "https://www.usedproducts.nl/WORX-Accu-WA3639-20V-Li-2-Ah-Nieuw-p774850255",
   "volume": 0,
   "weight": 0
