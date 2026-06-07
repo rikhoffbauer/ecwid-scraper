@@ -348,7 +348,7 @@
   "price": 179.95,
   "priceInProductList": 179.95,
   "productClassId": 0,
-  "quantity": 4,
+  "quantity": 3,
   "relatedProducts": {
     "productIds": [],
     "relatedCategory": {
@@ -385,8 +385,8 @@
   },
   "thumbnailUrl": "https://d2j6dbq0eux0bg.cloudfront.net/images/99490018/products/811941674/5552200458.jpg",
   "unlimited": false,
-  "updateTimestamp": 1780778104,
-  "updated": "2026-06-06 20:35:04 +0000",
+  "updateTimestamp": 1780854304,
+  "updated": "2026-06-07 17:45:04 +0000",
   "url": "https://www.usedproducts.nl/House-Of-Marley-Revolution-Platenspeler-Met-Speakers-NIEUW-p811941674",
   "volume": 0,
   "weight": 0
