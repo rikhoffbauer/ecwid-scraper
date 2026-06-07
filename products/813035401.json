@@ -210,7 +210,7 @@
   "price": 21.99,
   "priceInProductList": 21.99,
   "productClassId": 0,
-  "quantity": 4,
+  "quantity": 3,
   "relatedProducts": {
     "productIds": [],
     "relatedCategory": {
@@ -247,8 +247,8 @@
   },
   "thumbnailUrl": "https://d2j6dbq0eux0bg.cloudfront.net/images/99490018/products/813035401/5559198940.jpg",
   "unlimited": false,
-  "updateTimestamp": 1780772405,
-  "updated": "2026-06-06 19:00:05 +0000",
+  "updateTimestamp": 1780817406,
+  "updated": "2026-06-07 07:30:06 +0000",
   "url": "https://www.usedproducts.nl/FC26-Switch-2-New-Sealed-p813035401",
   "volume": 0,
   "weight": 0

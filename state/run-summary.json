@@ -1,20 +1,20 @@
 {
-  "generatedAt": "2026-06-07T05:14:31Z",
+  "generatedAt": "2026-06-07T08:04:38Z",
   "kind": "store-run-summary",
   "schemaVersion": 1,
   "source": "ecwid",
   "storeId": "99490018",
   "summary": {
-    "created": 3,
+    "created": 14,
     "deleted": 0,
-    "eventFile": "events/2026/06/07/09e842de1f60e0ee.jsonl",
+    "eventFile": "events/2026/06/07/8197faaf2a4693b0.jsonl",
     "eventFiles": [
-      "events/2026/06/07/09e842de1f60e0ee.jsonl"
+      "events/2026/06/07/8197faaf2a4693b0.jsonl"
     ],
-    "fetched": 64407,
-    "fieldEvents": 61,
-    "productsHash": "b3bdf88765ff1f93e2781f0fa0ea80384b5a65e073b6168d8d2d7fd8dd3637af",
+    "fetched": 64421,
+    "fieldEvents": 381,
+    "productsHash": "3807a8111a50b61de028645958bc36085ccd488328bb0529e3e6fbfd5b40cd2d",
     "storeId": "99490018",
-    "updated": 1
+    "updated": 7
   }
 }
