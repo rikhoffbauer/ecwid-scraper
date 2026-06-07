@@ -138,8 +138,8 @@
   "defaultCombinationId": 0,
   "defaultDisplayedLowestPrice": 99.99,
   "defaultDisplayedLowestPriceFormatted": "€ 99,99",
-  "defaultDisplayedPrice": 99.99,
-  "defaultDisplayedPriceFormatted": "€ 99,99",
+  "defaultDisplayedPrice": 89.99,
+  "defaultDisplayedPriceFormatted": "€ 89,99",
   "description": "<p>✅Betaal gemakkelijk met iDEAL-in-3✅</p>\r\n<p>🔥 Betaal in 3 termijnen – 0% rente! 🔥</p>\r\n<p> </p>\r\n<p>Artikelnummer: 989739</p>\r\n<p data-start=\"0\" data-end=\"263\">Ervaar ultiem comfort tijdens sporten en dagelijks gebruik met deze Shokz OpenRun headphones! Dankzij het open-ear design luister je naar jouw favoriete muziek terwijl je bewust blijft van je omgeving. Perfect voor hardlopen, fietsen, wandelen en workouts.</p>\r\n<p data-start=\"265\" data-end=\"535\">🏃 Lichtgewicht en comfortabel open-ear ontwerp<br data-start=\"312\" data-end=\"315\">🔊 Helder geluid met veilige luisterervaring<br data-start=\"359\" data-end=\"362\" data-is-only-node=\"\">📶 Draadloze Bluetooth verbinding<br data-start=\"395\" data-end=\"398\">🔋 Lange batterijduur voor uren luisterplezier<br data-start=\"444\" data-end=\"447\">✨ <strong data-start=\"449\" data-end=\"457\">ZGAN</strong> conditie en uitstekend onderhouden<br data-start=\"492\" data-end=\"495\">💦 Ideaal voor sport en actief gebruik</p>\r\n<p> </p>\r\n<p data-start=\"537\" data-end=\"769\" data-is-last-node=\"\" data-is-only-node=\"\">✅ Perfect voor hardlopen, fietsen en workouts<br data-start=\"582\" data-end=\"585\">✅ Comfortabel, modern en gebruiksvriendelijk<br data-start=\"629\" data-end=\"632\" data-is-only-node=\"\">🛡️ Wij geven altijd <strong data-start=\"653\" data-end=\"686\">6 maanden technische garantie</strong> zodat jij zorgeloos aan het werk kan! 💥<br data-start=\"727\" data-end=\"730\">📦 Netjes geleverd en direct inzetbaar!</p>\r\n<p> </p>",
   "dimensions": {
     "height": 0,
@@ -229,7 +229,10 @@
   "isShippingRequired": true,
   "lowestPrice": 99.99,
   "lowestPriceSettings": {
-    "lowestPriceEnabled": true
+    "defaultDisplayedManualLowestPrice": 99.99,
+    "defaultDisplayedManualLowestPriceFormatted": "€ 99,99",
+    "lowestPriceEnabled": true,
+    "manualLowestPrice": 99.99
   },
   "media": {
     "images": [
@@ -289,8 +292,8 @@
     "width": 800
   },
   "originalImageUrl": "https://d2j6dbq0eux0bg.cloudfront.net/images/99490018/products/835210301/5761120335.jpg",
-  "price": 99.99,
-  "priceInProductList": 99.99,
+  "price": 89.99,
+  "priceInProductList": 89.99,
   "productClassId": 0,
   "quantity": 1,
   "relatedProducts": {
@@ -329,8 +332,8 @@
   },
   "thumbnailUrl": "https://d2j6dbq0eux0bg.cloudfront.net/images/99490018/products/835210301/5761120338.jpg",
   "unlimited": false,
-  "updateTimestamp": 1778595306,
-  "updated": "2026-05-12 14:15:06 +0000",
+  "updateTimestamp": 1780826405,
+  "updated": "2026-06-07 10:00:05 +0000",
   "url": "https://www.usedproducts.nl/Shokz-Openrun-Headphone-ZGAN-p835210301",
   "volume": 0,
   "weight": 0
