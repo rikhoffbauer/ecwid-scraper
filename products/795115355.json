@@ -161,8 +161,8 @@
   "defaultCombinationId": 0,
   "defaultDisplayedLowestPrice": 1699.99,
   "defaultDisplayedLowestPriceFormatted": "€ 1.699,99",
-  "defaultDisplayedPrice": 1499.99,
-  "defaultDisplayedPriceFormatted": "€ 1.499,99",
+  "defaultDisplayedPrice": 1399.99,
+  "defaultDisplayedPriceFormatted": "€ 1.399,99",
   "description": "<p>Nieuwstaat!</p>\r\n<p> </p>\r\n<p>Framemaat M</p>\r\n<p> </p>\r\n<p>Elektrische full suspension mountainbike E-EXPL 500 S metallic grijs 29″</p>\r\n<p> </p>\r\n<p>85km op de teller.</p>\r\n<p> </p>\r\n<p>Inclusief lader.</p>\r\n<p> </p>\r\n<p>Inclusief garantie.</p>",
   "dimensions": {
     "height": 0,
@@ -315,8 +315,8 @@
     "width": 800
   },
   "originalImageUrl": "https://d2j6dbq0eux0bg.cloudfront.net/images/99490018/5358995433.jpg",
-  "price": 1499.99,
-  "priceInProductList": 1499.99,
+  "price": 1399.99,
+  "priceInProductList": 1399.99,
   "productClassId": 0,
   "quantity": 1,
   "relatedProducts": {
@@ -355,8 +355,8 @@
   },
   "thumbnailUrl": "https://d2j6dbq0eux0bg.cloudfront.net/images/99490018/5358995436.jpg",
   "unlimited": false,
-  "updateTimestamp": 1779451205,
-  "updated": "2026-05-22 12:00:05 +0000",
+  "updateTimestamp": 1780908939,
+  "updated": "2026-06-08 08:55:39 +0000",
   "url": "https://www.usedproducts.nl/Rockrider-E-EXPL-500S-Elektrische-Mountainbike-Nieuwstaat-p795115355",
   "volume": 0,
   "weight": 0

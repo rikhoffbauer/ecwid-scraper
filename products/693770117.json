@@ -144,6 +144,13 @@
   },
   "categories": [
     {
+      "ancestorIds": [],
+      "enabled": true,
+      "id": 164356080,
+      "name": "Telefoons",
+      "nameTranslated": "Telefoons"
+    },
+    {
       "ancestorIds": [
         164356080
       ],
@@ -154,7 +161,8 @@
     }
   ],
   "categoryIds": [
-    164353335
+    164353335,
+    164356080
   ],
   "combinations": [],
   "compositeComponents": [],
@@ -489,8 +497,8 @@
   },
   "thumbnailUrl": "https://d2j6dbq0eux0bg.cloudfront.net/images/99490018/4531106367.png",
   "unlimited": false,
-  "updateTimestamp": 1755870498,
-  "updated": "2025-08-22 13:48:18 +0000",
+  "updateTimestamp": 1780907743,
+  "updated": "2026-06-08 08:35:43 +0000",
   "url": "https://www.usedproducts.nl/Force-Power-Connected-Draadloos-Oplaadstation-15-Watt-l-NIEUW-p693770117",
   "volume": 0,
   "weight": 0

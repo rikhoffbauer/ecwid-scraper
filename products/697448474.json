@@ -131,6 +131,13 @@
   },
   "categories": [
     {
+      "ancestorIds": [],
+      "enabled": true,
+      "id": 164370253,
+      "name": "Beeld & geluid",
+      "nameTranslated": "Beeld & geluid"
+    },
+    {
       "ancestorIds": [
         164370253
       ],
@@ -141,7 +148,8 @@
     }
   ],
   "categoryIds": [
-    164357314
+    164357314,
+    164370253
   ],
   "combinations": [],
   "compositeComponents": [],
@@ -345,8 +353,8 @@
   },
   "thumbnailUrl": "https://d2j6dbq0eux0bg.cloudfront.net/images/99490018/4554381024.png",
   "unlimited": false,
-  "updateTimestamp": 1755862902,
-  "updated": "2025-08-22 11:41:42 +0000",
+  "updateTimestamp": 1780908658,
+  "updated": "2026-06-08 08:50:58 +0000",
   "url": "https://www.usedproducts.nl/Timeusb-9-in-1-12-V-24-V-DC-Accustopcontact-DC-converter-Gelijkstroomomvormer-Nieuw-in-Doos-p697448474",
   "volume": 0,
   "weight": 0

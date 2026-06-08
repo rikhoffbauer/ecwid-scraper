@@ -118,6 +118,22 @@
   },
   "categories": [
     {
+      "ancestorIds": [],
+      "enabled": true,
+      "id": 164352572,
+      "name": "Gaming",
+      "nameTranslated": "Gaming"
+    },
+    {
+      "ancestorIds": [
+        164352572
+      ],
+      "enabled": true,
+      "id": 164357317,
+      "name": "Nintendo",
+      "nameTranslated": "Nintendo"
+    },
+    {
       "ancestorIds": [
         164352572,
         164357317
@@ -129,7 +145,9 @@
     }
   ],
   "categoryIds": [
-    164352592
+    164352572,
+    164352592,
+    164357317
   ],
   "combinations": [],
   "compositeComponents": [],
@@ -232,8 +250,8 @@
   },
   "thumbnailUrl": "https://d2j6dbq0eux0bg.cloudfront.net/images/99490018/4531202709.png",
   "unlimited": false,
-  "updateTimestamp": 1755870501,
-  "updated": "2025-08-22 13:48:21 +0000",
+  "updateTimestamp": 1780908469,
+  "updated": "2026-06-08 08:47:49 +0000",
   "url": "https://www.usedproducts.nl/Overlord-Minions-Nintendo-DS-Game-met-Garantie-p693776514",
   "volume": 0,
   "weight": 0
