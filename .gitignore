@@ -32,3 +32,4 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .DS_Store
 
 .ecwid-sync/docs/@tanstack:ai/
+.ecwid-sync/
