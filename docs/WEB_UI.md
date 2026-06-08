@@ -25,6 +25,27 @@ comparisons, event lists, analysis summaries, action results, and artifacts. It 
 renders assistant-provided HTML. Reversible internal actions include an inline undo
 control; external stores remain read-only.
 
+The assistant drawer supports persistent conversations. The focused chat view switches
+to a full-width history view for creating, opening, renaming, archiving, restoring, and
+deleting conversations. Responses run on the Bun server and continue when the user
+switches conversations or leaves the page. Reconnectable server-sent events render text
+deltas and full tool activity while a response is still generating.
+
+The rounded message composer contains arbitrary file attachment, provider/model
+selection, and send controls. Uploaded files are stored below
+`.ecwid-sync/attachments/<conversationId>/`. The assistant has explicitly unrestricted
+host shell and filesystem tools for inspecting unsupported file types. Full tool inputs
+and outputs are stored in conversation history, so this local application must not be
+exposed to untrusted users or public traffic.
+
+Chat message text is rendered as sanitized GitHub-flavored Markdown, including lists,
+links, tables, blockquotes, and fenced code.
+
+LLM providers are configured through an inline Settings editor. Selecting a provider
+shows its relevant endpoint, authentication, and provider-specific fields; the UI
+constructs the stored provider configuration JSON internally. Provider configurations
+do not require user-defined names and use the provider kind as their display label.
+
 The assistant can use a user-selected shared browser tab, window, or screen as visual
 context. The UI always displays an active sharing preview and stop control. Screen
 frames are sampled at low detail and the existing text conversation remains available
@@ -40,10 +61,14 @@ Features:
 - product images from Ecwid thumbnail/image summary fields
 - default hiding for disabled or attribute-less records such as `{ "id": 693688849, "enabled": false }`
 - multi-store browsing with store toggles
-- details panel with raw product JSON, original webshop link, and likely same-product matches in other stores
+- details panel with raw offering JSON, original webshop link, and likely same-product matches in other stores
 - on-demand product history loading from `state/events.index.json` and JSONL event files
 - favorites and arbitrary local product lists stored in IndexedDB
 - table sorting and column selection
+
+The Intelligence workspace groups accepted canonical-product links first. Unlinked
+offerings may still be grouped by the existing lexical/SKU heuristic, but those groups
+are explicitly labeled as heuristic fallbacks.
 
 ## Query language
 
@@ -79,6 +104,12 @@ name ~= /cotton|linen/i && category |= Apparel
 ```
 
 For pattern operators, an unquoted right-hand identifier is treated as a literal if no field with that name exists, so `name *= hoodie` works like `name *= "hoodie"`.
+
+## Direct and watched searches
+
+The **Searches** workspace is separate from the catalogue query language. It sends a portable text query to one or more selected source adapters and displays per-source success or error status.
+
+Direct results are not persisted. A search can be saved for manual reuse or watched at a configured interval. Running a watched search adds or updates found products in the catalogue, retains current search membership plus run/change history, and never deletes catalogue products when they stop matching.
 
 ## Read-only tracking
 

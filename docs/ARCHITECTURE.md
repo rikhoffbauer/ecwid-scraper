@@ -39,6 +39,45 @@ Manual dispatch supports:
 
 The web UI also has a browser-side sync path that does not dispatch Actions. It fetches Ecwid products with a user-provided token and writes directly to `stores/ecwid/<storeId>` through GitHub's Git database API.
 
+Watched searches use the operational SQLite database and the running Bun server. The server checks due saved searches once per minute and prevents overlapping scheduler passes. Each successful source is reconciled independently, so a failed source retains its previous current membership. Watched results enter the shared catalogue, but leaving a search never deletes a catalogue product.
+
+## Assistant conversations
+
+Assistant conversations, messages, runs, partial responses, and ordered stream events
+are persisted in the operational SQLite database. Submitting a message creates a
+server-owned run and immediately returns its ID. The run continues independently of
+the browser connection and writes streamed text plus full tool activity to ordered
+events. Clients reconnect through per-conversation SSE using event IDs and reload
+persisted messages as a recovery fallback.
+
+One response may run per conversation, while separate conversations can run
+concurrently. Deleting a conversation cancels its active run before cascading stored
+records and uploaded files. Bun server restarts mark unfinished runs as failed rather
+than retrying potentially destructive tool calls.
+
+Configured LLM providers expose best-effort model catalogs. Providers that cannot list
+models fall back to their configured model. Each message stores its selected provider
+and model. Initial titles are generated asynchronously using the configured title
+model, or the default provider when no title model is configured; manual renames are
+never overwritten.
+
+Provider records keep a derived display label, provider kind, model, default state, and
+serialized provider-specific options. The web UI owns conversion from typed settings
+fields to this JSON representation; users do not edit configuration JSON directly.
+
+Uploads are stored under `.ecwid-sync/attachments/` without an application-level size
+limit. The assistant has unrestricted host shell and filesystem tools and persists full
+tool inputs and outputs. This is an accepted high-risk local-only capability and must
+not be exposed to untrusted users or public traffic.
+
+## Search modes
+
+- Catalogue search filters already-ingested product summaries locally.
+- Direct source search calls optional adapter-level `searchProducts` capabilities and does not persist results.
+- Watched search runs the same multi-source search runner, persists run and membership history, and upserts found products.
+
+Ecwid uses its native product keyword search and Shopify uses Storefront product search. HTML/JSON-LD sources only support direct search when `settings.searchUrlTemplate` is configured with a `{query}` placeholder. The application never simulates direct search by downloading an entire source catalogue.
+
 ## Events
 
 Events are written in JSONL files on the same store branch as the product snapshots. Product changes are atomic:
@@ -58,13 +97,43 @@ The web UI supports adding a new store by committing a new entry to `config/ecwi
 
 Because GitHub secrets cannot be read back through the API, the UI can write secrets but cannot display or merge with their existing plaintext values.
 
+Unsupported public websites can be onboarded through an explicitly enabled local
+AI workflow. The API server stages anonymous HTML evidence, runs Gemini CLI in a
+sandboxed staging directory, and executes generated adapters only in a scrubbed Bun
+child process. Generated adapters use a JSON request/response boundary and receive
+only a read-only HTTP client. Activated code, its manifest, and verification report
+live under `.ecwid-sync/adapters/<adapterId>/`; generated code is never imported into
+the API server process. This reduces risk but does not make executable AI-generated
+plugins safe against every prompt-injection or code-generation attack.
+
 ## Analysis
 
-Cross-store analysis is deliberately client-side and reproducible from git state:
+Cross-store analysis is deliberately client-side and reproducible from operational
+offering data:
 
-1. Load every store's `state/products.index.json`.
-2. Load product shards from `state/products/*.jsonl`.
-3. Cluster by SKU exact match plus lexical/category similarity.
+1. Load product offerings through `/api/product-offerings`.
+2. Group offerings with accepted canonical-product links.
+3. Cluster only unlinked offerings by SKU exact match plus lexical/category similarity,
+   and label those groups as heuristic fallbacks.
 4. Calculate cluster median prices.
 5. Derive per-store relative price indexes and favorable-offer candidates.
-6. Optionally persist the analysis snapshot back to `main`.
+
+## Canonical products and enrichment
+
+Source adapters and synchronization produce `ProductOffering` records: store-specific
+listings with source identity, price, availability, and source payload. The operational
+database retains `/api/products` as a compatibility alias and exposes the explicit
+`/api/product-offerings` endpoint. Canonical `Product` records are independent sellable
+variants and are exposed through `/api/canonical-products`.
+
+Added and changed offerings are queued for enrichment. An enrichment run exports only
+the required source records, taxonomy, identifiers, specifications, and candidate data
+to `.ecwid-sync/enrichment-runs/<run-id>/enrichment.sqlite`. Agent harnesses receive the
+database path and contract rather than inline offering data. Source-table write
+triggers and before/after digests enforce read-only access, while
+`enrichment_contract` explicitly lists writable proposal, review, note, and validation
+tables.
+
+Agents never receive the production database and cannot apply production changes.
+Application code validates structured proposals and is responsible for deduplication,
+review policy, idempotency, canonical links, and provenance.

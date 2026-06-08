@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { createReadOnlyHttpClient } from "../src/sources/read-only-http.ts";
-import { ecwidSourceAdapter } from "../src/sources/ecwid.ts";
+import { createReadOnlyHttpClient } from "../src/server/sources/read-only-http.ts";
+import { ecwidSourceAdapter } from "../src/server/sources/ecwid.ts";
 
 describe("read-only source HTTP", () => {
   test("allows GET and HEAD requests", async () => {
@@ -52,5 +52,15 @@ describe("read-only source HTTP", () => {
       raw: { id: 1, name: "Tracked" }
     });
     expect(methods).toEqual(["GET"]);
+  });
+
+  test("translates Ecwid direct search to the native keyword parameter", async () => {
+    let requested: URL | undefined;
+    const http = createReadOnlyHttpClient((async (input) => {
+      requested = new URL(String(input));
+      return Response.json({ total: 0, count: 0, offset: 0, limit: 200, items: [] });
+    }) as typeof fetch);
+    for await (const _ of ecwidSourceAdapter.searchProducts!({ id: "store-1", token: "read-token" }, { query: "oak chair" }, { http })) {}
+    expect(requested?.searchParams.get("keyword")).toBe("oak chair");
   });
 });

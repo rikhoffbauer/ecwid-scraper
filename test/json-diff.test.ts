@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { diffJson } from "../src/json-diff.ts";
+import { diffJson } from "../src/shared/json-diff.ts";
 
 describe("json diff", () => {
   test("emits atomic JSON pointer changes", () => {

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { createReadOnlyHttpClient } from "../src/sources/read-only-http.ts";
-import { implementedSourceKinds, sourceAdapter } from "../src/sources/registry.ts";
-import { shopifySourceAdapter } from "../src/sources/shopify.ts";
+import { createReadOnlyHttpClient } from "../src/server/sources/read-only-http.ts";
+import { implementedSourceKinds, sourceAdapter } from "../src/server/sources/registry.ts";
+import { shopifySourceAdapter } from "../src/server/sources/shopify.ts";
 
 describe("Shopify source adapter", () => {
   test("reads and normalizes cursor-paginated Storefront products", async () => {
@@ -74,5 +74,18 @@ describe("Shopify source adapter", () => {
     expect(implementedSourceKinds()).toContain("shopify");
     expect(sourceAdapter("shopify").kind).toBe("shopify");
     expect(sourceAdapter("ibood").kind).toBe("ibood");
+  });
+
+  test("passes direct search text to Shopify's native product query", async () => {
+    let variables = "";
+    const http = createReadOnlyHttpClient((async (input) => {
+      variables = new URL(String(input)).searchParams.get("variables") ?? "";
+      return Response.json({ data: { products: { nodes: [], pageInfo: { hasNextPage: false } } } });
+    }) as typeof fetch);
+    for await (const _ of shopifySourceAdapter.searchProducts!({
+      id: "shop", kind: "shopify", url: "https://example.myshopify.com"
+    }, { query: "oak chair" }, { http })) {}
+    expect(variables).toContain('"query":"oak chair"');
+    expect(variables).toContain('"sortKey":"RELEVANCE"');
   });
 });

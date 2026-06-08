@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { compileProductQuery } from "../web/src/query-language.ts";
+import { compileProductQuery } from "../src/server/query-language.ts";
 
 const ctx = {
   storeId: "99490018",

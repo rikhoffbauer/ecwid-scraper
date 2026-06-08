@@ -1,0 +1,15 @@
+import { categoryText, formatPrice, productImageUrl, productName, productPrice, productUrl, similarProducts, stockLabel, type CatalogProduct } from "../../shared/catalog";
+import type { ProductEvent } from "../../shared/types";
+import { EmptyState, formatRelativeTime } from "./ui";
+
+export function ProductDetails({ detail, catalog, events }: { detail: CatalogProduct | null; catalog: CatalogProduct[]; events: ProductEvent[] }) {
+  if (!detail) return <div className="context-sidebar"><header className="sidebar-header"><div><span>Inspect</span><h2>Product details</h2></div></header><EmptyState title="Select a product">Details, matches, and history appear here.</EmptyState></div>;
+  const image = productImageUrl(detail.summary, detail.product);
+  const history = events.filter((event) => event.storeId === detail.storeId && event.productId === detail.productId).slice(-8).reverse();
+  const matches = similarProducts(detail, catalog).slice(0, 5);
+  return <div className="context-sidebar detail-sidebar"><header className="sidebar-header"><div><span>{detail.storeName}</span><h2>{productName(detail.summary, detail.product)}</h2></div></header>{image ? <img className="detail-image" src={image} alt="" /> : null}<div className="detail-price"><b>{formatPrice(productPrice(detail.summary, detail.product))}</b><span>{stockLabel(detail.summary)}</span></div>{productUrl(detail.summary, detail.product, detail.storeUrl) ? <a className="primary-link" href={productUrl(detail.summary, detail.product, detail.storeUrl)} target="_blank" rel="noreferrer">Open original source</a> : null}<section className="sidebar-section"><h3>Product</h3><dl className="detail-list"><dt>SKU</dt><dd>{detail.summary.sku ?? "—"}</dd><dt>Category</dt><dd>{categoryText(detail.summary) || "—"}</dd><dt>ID</dt><dd>{detail.productId}</dd></dl></section><section className="sidebar-section"><h3>Likely matches</h3><div className="match-stack">{matches.map((match) => <div key={match.key}><strong>{productName(match.summary)}</strong><span>{match.storeName} · {formatPrice(productPrice(match.summary))}</span></div>)}</div></section><section className="sidebar-section"><h3>Recent history</h3><div className="activity-stack">{history.map((event) => <div key={event.eventId}><span className="event-dot" /><strong>{event.eventType.replace("product.", "")}</strong><time>{formatRelativeTime(event.observedAt)}</time></div>)}</div></section><details className="raw-json"><summary>Raw product JSON</summary><pre>{JSON.stringify(detail.product, null, 2)}</pre></details></div>;
+}
+
+export function ActivityPanel({ events }: { events: ProductEvent[] }) {
+  return <div className="context-sidebar"><header className="sidebar-header"><div><span>Latest</span><h2>Activity</h2></div></header><div className="activity-stack roomy">{events.slice(-40).reverse().map((event) => <div key={event.eventId}><span className="event-dot" /><p><strong>{event.eventType.replace("product.", "")}</strong><span>{event.storeId} · {event.productId}</span></p><time>{formatRelativeTime(event.observedAt)}</time></div>)}</div></div>;
+}

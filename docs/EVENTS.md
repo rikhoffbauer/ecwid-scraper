@@ -26,8 +26,8 @@ Important fields:
 - `eventId`: deterministic SHA-256-derived event identifier.
 - `storeId`: Ecwid store ID.
 - `productId`: Ecwid product ID.
-- `currentHash`: SHA-256 of the canonical product JSON.
-- `product`: full canonical Ecwid product payload.
+- `currentHash`: SHA-256 of the normalized product-offering snapshot.
+- `product`: full normalized Ecwid offering payload.
 
 ### `product.deleted`
 
@@ -35,7 +35,7 @@ Emitted once for a product ID that had a snapshot file but no longer appears in 
 
 Important fields:
 
-- `previousHash`: SHA-256 of the removed canonical product JSON.
+- `previousHash`: SHA-256 of the removed product-offering snapshot.
 - `product`: last known full product payload.
 
 ### `product.field_changed`

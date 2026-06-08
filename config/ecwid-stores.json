@@ -5,15 +5,54 @@
   "eventBranchPrefix": "events/ecwid",
   "stores": [
     {
+      "id": "ibood",
+      "kind": "ibood",
+      "name": "iBOOD",
+      "url": "https://www.ibood.com/nl/s-nl/",
+      "enabled": true,
+      "syncIntervalMinutes": 60,
+      "settings": {
+        "tenantId": "eafb3ef2-e1ba-4f01-b67a-b0447bea74eb",
+        "shopId": "b22a484d-fd20-570a-adf6-22edf2fdaf79"
+      }
+    },
+    {
+      "id": "hergebruikalles",
+      "kind": "shopify",
+      "name": "Hergebruikalles.nl",
+      "url": "https://hergebruikalles.nl/",
+      "enabled": true,
+      "syncIntervalMinutes": 60,
+      "credentialsEnv": {
+        "SHOPIFY_STOREFRONT_TOKEN": "HERGEBRUIKALLES_TOKEN"
+      }
+    },
+    {
       "id": "99490018",
+      "kind": "ecwid",
       "name": "Usedproducts",
       "url": "https://www.usedproducts.nl/",
       "tokenEnv": "ECWID_99490018_TOKEN",
       "enabled": true,
       "limit": 200,
       "requestDelayMs": 100,
-      "syncIntervalMinutes": 30,
-      "webhooks": []
+      "syncIntervalMinutes": 60
+    },
+    {
+      "id": "2dekansje",
+      "kind": "2dekansje",
+      "name": "2dekansje",
+      "url": "https://www.2dekansje.com/",
+      "enabled": true,
+      "syncIntervalMinutes": 60
+    },
+    {
+      "id": "retoertje",
+      "kind": "retoertje",
+      "name": "Retoertje",
+      "url": "https://retoertje.nl/",
+      "enabled": true,
+      "syncIntervalMinutes": 60
     }
   ],
   "storeBranchPrefix": "stores/ecwid",

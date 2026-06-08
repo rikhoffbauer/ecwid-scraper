@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { isAssistantWidget, normalizeAssistantMetadata, widgetsForToolCall } from "../src/operations/widgets.ts";
+import { isAssistantWidget, normalizeAssistantMetadata, widgetsForToolCall } from "../src/server/operations/widgets.ts";
 
 describe("assistant widgets", () => {
   test("maps trusted tool outputs to compact widgets", () => {

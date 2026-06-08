@@ -7,6 +7,7 @@ Mirror one or more Ecwid stores into git and use the repository itself as a prod
 - Each store branch contains current per-product JSON files, append-only JSONL product events, and resolved state snapshots/indexes. Large event/state JSONL outputs are sharded below GitHub blob limits.
 - Store sync intervals are configured per store.
 - The web UI can add stores, manage secrets, configure webhooks, run browser-side on-demand syncs, browse products/events as a webshop-like catalogue, save local favorites/lists, run advanced product queries, and run cross-store analysis.
+- The web UI can search configured sources directly, save multi-source searches, and periodically watch searches while retaining result membership history.
 - Every external product source is strictly read-only. This project tracks and analyzes products but never modifies source stores or listings.
 
 ## Setup
@@ -113,3 +114,93 @@ The UI can load resolved state shards across all stores and compute:
 - per-store relative price indexes
 - likely favorable offers compared to cluster medians
 - persisted cross-store snapshots at `analysis/cross-store/latest.json` and timestamped history files
+
+## Direct and watched searches
+
+Catalogue search filters products already stored locally. The **Searches** workspace instead calls each selected source's native search capability. Direct searches are read-only and do not change the catalogue.
+
+A saved search can be watched on an interval. The running Bun server checks due watched searches once per minute. Successful watched results are upserted into the tracked catalogue and current search membership; products leaving a search remain in the catalogue. Runs and membership changes are retained in SQLite. Multi-source runs preserve successful results and report failures per source.
+
+Ecwid and Shopify translate text queries to their native APIs. JSON-LD marketplace sources require an explicit search URL template:
+
+```json
+{
+  "settings": {
+    "searchUrlTemplate": "https://example.com/search?q={query}"
+  }
+}
+```
+
+All source search requests pass through the read-only HTTP client and can only use `GET` or `HEAD`.
+
+## AI-generated source adapters
+
+The local Sources workspace can onboard an unsupported public website by asking the
+installed `gemini` CLI to generate an executable adapter. Enable this explicitly:
+
+```bash
+ENABLE_AI_ADAPTER_ONBOARDING=1 \
+AI_ADAPTER_ONBOARDING_TOKEN='<dedicated-secret>' \
+bun run server
+```
+
+Gemini must already be authenticated. The wizard requires a catalogue URL and its
+displayed page number, one product URL, and a search URL with its displayed query.
+It fetches anonymous evidence, optionally captures rendered HTML with a configured
+headless browser command, generates and tests the adapter up to three times, and
+runs an independent Gemini verification pass. Clear passes activate automatically;
+inconclusive passes show previews for approval.
+
+Activated adapters are stored under `.ecwid-sync/adapters/<adapterId>/` with their
+manifest and verification report. Delete the generated source from the Sources API
+and remove that adapter directory to recover from a bad activation.
+
+Generated adapters execute in a scrubbed child process and are screened for imports,
+host-runtime access, direct network calls, and dynamic code execution. They are still
+trusted executable local code; static screening cannot eliminate every possible
+prompt-injection or sandbox-escape technique.
+
+## Canonical products and enrichment
+
+The operational database now distinguishes store-specific `ProductOffering` rows from
+canonical `Product` rows. Existing `/api/products` responses remain available as a
+compatibility alias for offerings. New API entry points are:
+
+- `GET /api/product-offerings`
+- `GET /api/product-offerings/:id`
+- `GET /api/canonical-products`
+- `GET /api/canonical-products/:id`
+- `POST /api/enrichment/runs`
+- `GET /api/enrichment/runs`
+- `GET /api/enrichment/runs/:id/proposals`
+- `POST /api/enrichment/runs/:id/proposals`
+- `POST /api/enrichment/runs/:id/execute`
+- `POST /api/enrichment/runs/:id/apply`
+
+Preparing an enrichment run creates a dedicated SQLite artifact at
+`.ecwid-sync/enrichment-runs/<run-id>/enrichment.sqlite`. The agent receives the
+database path and schema contract, not product data inline. Source tables are exported
+read-only by convention; result tables are listed in `enrichment_contract`.
+
+Agent execution is opt-in:
+
+```bash
+ENRICHMENT_AGENT_COMMAND='codex exec --sandbox read-only' \
+ENRICHMENT_AGENT_TIMEOUT_MS=300000 \
+ENRICHMENT_AGENT_MAX_REPAIRS=1 \
+bun run server
+```
+
+Embedding candidate generation is optional during run preparation. Configure it with
+an existing LLM provider record:
+
+```bash
+ENRICHMENT_EMBEDDING_PROVIDER_ID=1 \
+ENRICHMENT_EMBEDDING_MODEL='text-embedding-3-small' \
+ENRICHMENT_EMBEDDING_MINIMUM_SCORE=0.65 \
+bun run server
+```
+
+The application validates proposal rows, detects forbidden source-table writes, records
+validation errors in the run database, and applies only accepted proposals through
+production code. Reapplying proposals is idempotent.

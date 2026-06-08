@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { stableStringify, sha256Json } from "../src/canonical-json.ts";
+import { stableStringify, sha256Json } from "../src/shared/canonical-json.ts";
 
 describe("canonical JSON", () => {
   test("sorts object keys recursively", () => {

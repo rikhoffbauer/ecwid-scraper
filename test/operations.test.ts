@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { createDefaultActionRegistry } from "../src/operations/actions.ts";
-import { runAutomationsForEvents } from "../src/operations/automations.ts";
-import { OperationsDatabase } from "../src/operations/database.ts";
-import type { JsonObject, ProductEvent } from "../src/types.ts";
+import { createDefaultActionRegistry } from "../src/server/operations/actions.ts";
+import { runAutomationsForEvents } from "../src/server/operations/automations.ts";
+import { OperationsDatabase } from "../src/server/operations/database.ts";
+import { OpenAiAssistantAnalyzer } from "../src/server/operations/assistant-analyzer.ts";
+import type { JsonObject, ProductEvent } from "../src/shared/types.ts";
 
 const databases: OperationsDatabase[] = [];
 
@@ -32,6 +33,53 @@ function products(): JsonObject[] {
 }
 
 describe("operational actions and automations", () => {
+  test("persists conversation lifecycle, assistant runs, partial messages, and ordered events", () => {
+    const db = database();
+    const conversation = db.createConversation();
+    db.renameConversation(conversation.id, "Manual title");
+    const user = db.addMessage(conversation.id, "user", "Inspect this");
+    const assistant = db.addMessage(conversation.id, "assistant", "");
+    const run = db.createAssistantRun({
+      conversationId: conversation.id,
+      userMessageId: user.id,
+      assistantMessageId: assistant.id,
+      providerId: null,
+      model: "gpt-test"
+    });
+
+    db.updateMessageContent(assistant.id, "Partial");
+    const first = db.addAssistantRunEvent(run.id, conversation.id, "text", { delta: "Partial" });
+    const second = db.addAssistantRunEvent(run.id, conversation.id, "tool", { name: "shell", input: { command: "pwd" } });
+    db.finishAssistantRun(run.id, "completed");
+    db.archiveConversation(conversation.id, true);
+
+    expect(db.conversation(conversation.id)).toMatchObject({ title: "Manual title", titleSource: "manual", archivedAt: expect.any(String) });
+    expect(db.listConversations(false)).toEqual([]);
+    expect(db.listConversations(true)).toHaveLength(1);
+    expect(db.listMessages(conversation.id).at(-1)?.content).toBe("Partial");
+    expect(db.listAssistantRuns(conversation.id)[0]).toMatchObject({ status: "completed", model: "gpt-test" });
+    expect(db.listAssistantRunEvents(conversation.id, first.id)).toEqual([second]);
+  });
+
+  test("marks unfinished assistant runs as interrupted and deletes conversation data", () => {
+    const db = database();
+    const conversation = db.createConversation();
+    const user = db.addMessage(conversation.id, "user", "Keep working");
+    const assistant = db.addMessage(conversation.id, "assistant", "");
+    db.createAssistantRun({ conversationId: conversation.id, userMessageId: user.id, assistantMessageId: assistant.id, providerId: null, model: "gpt-test" });
+
+    expect(db.markInterruptedAssistantRuns()).toBe(1);
+    expect(db.listAssistantRuns(conversation.id)[0]).toMatchObject({ status: "failed", error: "Server restarted while response was generating" });
+    expect(db.deleteConversation(conversation.id)).toBe(true);
+    expect(db.conversation(conversation.id)).toBeNull();
+  });
+
+  test("creates an unnamed LLM provider using its provider kind as the display label", () => {
+    const db = database();
+    const provider = db.addLLMProvider({ provider: "gemini", configJson: "{}", model: "gemini-test", isDefault: true });
+    expect(provider).toMatchObject({ name: "Gemini", provider: "gemini", model: "gemini-test", isDefault: true });
+  });
+
   test("executes internal actions and records their audit trail", async () => {
     const db = database();
     const actions = createDefaultActionRegistry();
@@ -96,5 +144,17 @@ describe("operational actions and automations", () => {
     expect(second).toEqual([]);
     expect(db.listFlags()).toEqual([expect.objectContaining({ label: "exceptional-value", productId: "rare" })]);
     expect(db.listAudit()).toHaveLength(1);
+  });
+
+  test("OpenAiAssistantAnalyzer can be constructed with a default LLM provider without throwing", () => {
+    const db = database();
+    db.addLLMProvider({
+      provider: "gemini",
+      configJson: '{"apiKey":"test"}',
+      model: "gemini-test",
+      isDefault: true
+    });
+    const analyzer = new OpenAiAssistantAnalyzer(db);
+    expect(analyzer).toBeDefined();
   });
 });

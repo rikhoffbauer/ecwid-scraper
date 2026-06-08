@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import type { AppConfig, EcwidProductsPage } from "../src/types.ts";
-import { syncStores } from "../src/sync.ts";
-import { OperationsDatabase } from "../src/operations/database.ts";
+import type { AppConfig, EcwidProductsPage } from "../src/shared/types.ts";
+import { syncStores } from "../src/server/sync.ts";
+import { OperationsDatabase } from "../src/server/operations/database.ts";
 import path from "node:path";
 import os from "node:os";
 

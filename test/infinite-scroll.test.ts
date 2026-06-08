@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { nextInfiniteCount } from "../web/src/hooks.ts";
+import { nextInfiniteCount } from "../src/client/hooks.ts";
 
 describe("infinite catalogue loading", () => {
   test("loads the next chunk without exceeding the filtered total", () => {
