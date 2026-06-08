@@ -825,8 +825,8 @@ export class OperationsDatabase {
     
     queryParams.push(limit, offset);
     
-    const totalCount = (this.db.query(countSql).get(...countParams) as any).count;
-    const rows = this.db.query(sql).all(...queryParams) as any[];
+    const totalCount = (this.db.query(countSql).get(...(countParams as any[])) as any).count;
+    const rows = this.db.query(sql).all(...(queryParams as any[])) as any[];
 
     const products = rows.map((row) => ({
       id: Number(row.id), storeId: row.store_id, externalId: row.external_id, productId: row.external_id, hash: row.hash,

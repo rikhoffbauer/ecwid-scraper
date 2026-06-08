@@ -35,12 +35,13 @@ export class ProductsService {
   searchProducts(params: SearchProductsParams, config: { stores: any[] }) {
     let sqlCondition: { sql: string; params: unknown[] } | undefined;
     if (params.query?.trim()) {
-      sqlCondition = compileProductQueryToSQL(params.query);
-      if (sqlCondition.error) {
+      const compiled = compileProductQueryToSQL(params.query) as any;
+      if (compiled.error) {
         // If compilation fails, we can either return empty or ignore.
         // Returning empty since it's an invalid query.
         return { total: 0, products: [] };
       }
+      sqlCondition = compiled;
     }
 
     const result = this.db.searchProductOfferings({
