@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-08T04:08:10Z",
+  "generatedAt": "2026-06-08T05:49:32Z",
   "kind": "store-run-summary",
   "schemaVersion": 1,
   "source": "ecwid",
@@ -7,10 +7,14 @@
   "summary": {
     "created": 0,
     "deleted": 0,
+    "eventFile": "events/2026/06/08/57fa5a097a3e84ce.jsonl",
+    "eventFiles": [
+      "events/2026/06/08/57fa5a097a3e84ce.jsonl"
+    ],
     "fetched": 64447,
-    "fieldEvents": 0,
-    "productsHash": "b764c8dbeb1617937a5a6ca9c7c63c460b858e968fb6db3c9472ca4d1c738913",
+    "fieldEvents": 183,
+    "productsHash": "495da30e480b7d82fec633e47d7de3ed897cdd1e0c415d56ba5076220eabd68a",
     "storeId": "99490018",
-    "updated": 0
+    "updated": 3
   }
 }
